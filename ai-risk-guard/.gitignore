@@ -1,0 +1,29 @@
+# AI Risk Guard - Security Ignore Rules
+
+# 1. Credentials & Secrets (CRITICAL)
+.env
+.env.*
+*.pem
+secrets/
+
+# 2. Python Environment
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# 3. Local Data & Logs
+data/dashboard.db
+data/logs.json
+data/*.log
+
+# 4. OS & IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

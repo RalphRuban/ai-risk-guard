@@ -1,0 +1,41 @@
+{
+    "policy_name": "Standard Enterprise Security Policy",
+    "version": "1.0",
+    "description": "Default security guardrails for Python applications.",
+    
+    "forbidden_modules": [
+        "pickle",
+        "marshal",
+        "shelve",
+        "telnetlib"
+    ],
+    
+    "forbidden_functions": [
+        "os.system",
+        "os.popen",
+        "eval",
+        "exec",
+        "input"
+    ],
+    
+    "mandatory_sanitizers": {
+        "subprocess.run": [
+            "shell=False"
+        ],
+        "subprocess.Popen": [
+            "shell=False"
+        ]
+    },
+    
+    "risk_tolerance": {
+        "max_allowed_risk": 8.5,
+        "require_human_review_above": 4.0
+    },
+    
+    "sensitive_paths": [
+        "auth/",
+        "secrets/",
+        "credentials/",
+        "billing/"
+    ]
+}
