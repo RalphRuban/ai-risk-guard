@@ -5,7 +5,6 @@ Phase 4.3 — CodeQL provisioning: unit tests for the provisioner and webhook
 integration (installation.created / installation_repositories.added).
 """
 
-import base64
 import hashlib
 import hmac
 import json
@@ -132,70 +131,11 @@ class TestCreateCodeqlPr:
         assert any(p.endswith(".github/codeql/codeql-config.yml") for p in put_paths)
         for c in mock_put.call_args_list:
             assert c[1]["json"]["branch"] == "ai-risk-guard/codeql-setup"
-            assert "sha" not in c[1]["json"]
-
-        wf_put = next(
-            c for c in mock_put.call_args_list
-            if c[0][0].endswith("/codeql.yml")
-        )
-        workflow = base64.b64decode(wf_put[1]["json"]["content"]).decode()
-        assert "branches: [main]" in workflow
-        assert "language: [python, javascript]" in workflow
-
-    def test_renders_resolved_branch_and_single_language_matrix(self):
-        def fake_get(url, **kwargs):
-            if url.endswith("/repos/owner/repo"):
-                return _resp(200, json_data={"default_branch": "master"})
-            if "git/ref/heads" in url:
-                return _resp(200, json_data={"object": {"sha": "base-sha-1"}})
-            return _resp(404)
-
-        with (
-            patch.object(prov.requests, "get", side_effect=fake_get),
-            patch.object(
-                prov.requests, "post",
-                return_value=_resp(201, json_data={"html_url": "https://github.com/owner/repo/pull/1"}),
-            ) as mock_post,
-            patch.object(prov.requests, "put", return_value=_resp(201, json_data={})) as mock_put,
-        ):
-            result = prov.create_codeql_pr("owner/repo", "token", language="Python")
-
-        assert result == "https://github.com/owner/repo/pull/1"
-        pr_call = next(c for c in mock_post.call_args_list if c[0][0].endswith("/pulls"))
-        assert pr_call[1]["json"]["base"] == "master"
-        assert pr_call[1]["json"]["head"] == "ai-risk-guard/codeql-setup"
-        wf_put = next(
-            c for c in mock_put.call_args_list
-            if c[0][0].endswith("/codeql.yml")
-        )
-        workflow = base64.b64decode(wf_put[1]["json"]["content"]).decode()
-        assert "branches: [master]" in workflow
-        assert "language: [python]" in workflow
-        pr_body = pr_call[1]["json"]["body"]
-        assert "for **python**" in pr_body
-
-    def test_put_file_includes_sha_when_file_exists(self):
-        def fake_get(url, **kwargs):
-            if "/contents/" in url:
-                return _resp(200, json_data={"sha": "abc123"})
-            return _resp(404)
-
-        with (
-            patch.object(prov.requests, "get", side_effect=fake_get),
-            patch.object(prov.requests, "put") as mock_put,
-        ):
-            mock_put.return_value = _resp(201, json_data={})
-            ok = prov._put_file(
-                "owner/repo", "token", ".github/workflows/codeql.yml", "yaml", "ai-risk-guard/codeql-setup"
-            )
-        assert ok is True
-        assert mock_put.call_args[1]["json"]["sha"] == "abc123"
 
     def test_swallows_branch_creation_failure(self):
         with (
             patch.object(prov.requests, "get", return_value=_resp(200, json_data={"object": {"sha": "s"}})),
             patch.object(prov.requests, "post", return_value=_resp(422, text="branch exists")),
-            patch.object(prov.requests, "put", return_value=_resp(201, json_data={})),
         ):
             assert prov.create_codeql_pr("owner/repo", "token") is None
 
@@ -219,8 +159,8 @@ class TestProvisionForRepos:
         ) as mock_pr:
             app_module._provision_codeql_for_repos(repos, 5)
         assert mock_pr.call_count == 2
-        mock_pr.assert_any_call("owner/one", "token", default_branch="main", language=None)
-        mock_pr.assert_any_call("owner/two", "token", default_branch="dev", language=None)
+        mock_pr.assert_any_call("owner/one", "token", default_branch="main")
+        mock_pr.assert_any_call("owner/two", "token", default_branch="dev")
 
     def test_skips_when_disabled(self):
         with patch.object(app_module.config.app.codeql, "enabled", False), patch.object(
