@@ -5,6 +5,7 @@ These feed into risk_engine.calculate_risk() as the 'complexity' factor.
 """
 
 import ast
+
 from utils.logger import logger
 
 

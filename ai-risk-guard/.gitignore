@@ -10,6 +10,9 @@ secrets/
 __pycache__/
 *.py[cod]
 *$py.class
+.mypy_cache
+.pytest_cache
+.ruff_cache
 venv/
 .venv/
 env/
@@ -20,6 +23,7 @@ dist/
 # 3. Local Data & Logs
 data/dashboard.db
 data/logs.json
+data/logs.json.*
 data/*.log
 
 # 4. OS & IDE
@@ -27,3 +31,8 @@ data/*.log
 .idea/
 .DS_Store
 Thumbs.db
+
+# 5. Project Planning Docs
+Plan.md
+Deploy_Plan.md
+AGENTS.md

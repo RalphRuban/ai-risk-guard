@@ -1,0 +1,22 @@
+target-version = "py313"
+
+[lint]
+# Intentional project-wide patterns (kept as-is for resilience/security):
+# - BLE001 (blind `except Exception`): error isolation across agents, caches,
+#   and best-effort GitHub/Docker wrappers.
+# - S110 (try/except-pass): deliberate best-effort cleanup paths.
+# - S102 (exec): required by the sandbox validator to execute code under test.
+# - PLW1510 (subprocess.run without check): deliberate non-raising probes of
+#   Docker availability and container cleanup.
+ignore = ["BLE001", "S110", "S102", "PLW1510"]
+
+[lint.per-file-ignores]
+# Tests intentionally create persistent temp files via
+# tempfile.NamedTemporaryFile(delete=False) whose handles must outlive scope,
+# so SIM115's context-manager suggestion does not apply.
+"tests/**/*.py" = ["SIM115"]
+
+# demo.py must stay importable on Python 3.10 (the sandbox image is
+# python:3.10-slim-bookworm), so keep `timezone.utc` over the UP017
+# `datetime.UTC` alias (which only exists on Python 3.11+).
+"demo.py" = ["UP017"]

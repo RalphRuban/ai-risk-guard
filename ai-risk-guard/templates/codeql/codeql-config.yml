@@ -1,0 +1,6 @@
+name: "AI Risk Guard CodeQL Config"
+paths-ignore:
+  - "tests/**"
+  - "**/test_*.py"
+  - "**/demo*.py"
+  - "**/demo/**"

@@ -15,7 +15,6 @@ import requests
 
 from utils.logger import logger
 
-
 # =========================================================
 # JWT GENERATION
 # =========================================================
@@ -49,16 +48,13 @@ def generate_jwt(
         private_key = private_key.strip().strip('"').strip("'")
 
         # SAFE DIAGNOSTICS (does not log the actual secret)
-        key_preview = private_key[:20].replace("\n", "\\n")
-        key_end = private_key[-20:].replace("\n", "\\n")
         logger.info(
-            f"Attempting JWT encode. Source: {source}, Length: {len(private_key)}, "
-            f"Start: {key_preview}..., End: ...{key_end}",
+            f"Attempting JWT encode. Source: {source}, Length: {len(private_key)}",
             "AUTH"
         )
 
         if not private_key.startswith("-----BEGIN"):
-            logger.error(f"Key format error: Starts with '{private_key[:15]}'", "AUTH")
+            logger.error("Key format error: does not start with PEM header", "AUTH")
 
         now = int(time.time())
         payload = {

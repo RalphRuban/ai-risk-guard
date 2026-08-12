@@ -1,0 +1,32 @@
+# AI Risk Guard - Risk Configuration
+weights:
+  severity: 0.22
+  type: 0.14
+  validation: 0.16
+  confidence: 0.12
+  complexity: 0.0
+  sensitivity: 0.12
+  exposure: 0.12
+  quality: 0.12
+
+severity_normalization:
+  CRITICAL: 1.0
+  HIGH: 1.0
+  MEDIUM: 0.6
+  LOW: 0.3
+
+type_normalization:
+  COMMAND_INJECTION: 1.0
+  CODE_INJECTION: 0.95
+  SQL_INJECTION: 1.0
+  SSRF: 0.9
+  INSECURE_DESERIALIZATION: 0.9
+  PATH_TRAVERSAL: 0.8
+  HARDCODED_SECRET: 0.7
+  WEAK_CRYPTOGRAPHY: 0.5
+  TLS_VERIFICATION_DISABLED: 0.5
+  DEBUG_CODE: 0.2
+
+gating:
+  max_allowed_risk: 8.5
+  auto_request_changes_above: 4.0

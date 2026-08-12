@@ -1,0 +1,96 @@
+# AI Risk Guard - Security Policy Configuration
+# Replaces core/policy/policy.json
+
+policy_name: "Standard Enterprise Security Policy"
+version: "1.0"
+description: "Default security guardrails for Python applications."
+
+forbidden_modules:
+  - "marshal"
+  - "shelve"
+  - "telnetlib"
+
+forbidden_functions:
+  - "os.system"
+  - "os.popen"
+  - "eval"
+  - "exec"
+  - "hashlib.md5"
+  - "hashlib.sha1"
+
+mandatory_sanitizers:
+  subprocess.run:
+    - "shell=False"
+  subprocess.Popen:
+    - "shell=False"
+
+sensitive_paths:
+  - "auth/"
+  - "secrets/"
+  - "credentials/"
+  - "billing/"
+
+restricted_function_args:
+  - function: "hashlib.new"
+    arg_index: 0
+    forbidden_values: ["md5", "sha1", "md4", "sha"]
+    violation_msg: "Weak hash algorithm '{value}' — use sha256 or stronger"
+
+mandatory_call_wrappers:
+  - target: "requests.get"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+    violation_msg: "URL argument must be wrapped with validate_url_ssrf()"
+  - target: "requests.post"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "requests.put"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "requests.delete"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "requests.patch"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "requests.head"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "urllib.request.urlopen"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "httpx.get"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "httpx.post"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "httpx.put"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "httpx.delete"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "httpx.patch"
+    wrappers: ["validate_url_ssrf"]
+    arg_index: 0
+  - target: "open"
+    wrappers: ["os.path.basename", "safe_path_join"]
+    arg_index: 0
+    violation_msg: "File path must be validated with os.path.basename() or safe_path_join()"
+
+forbidden_assignments:
+  - pattern: "*password*"
+    violation_msg: "Hardcoded password detected — use environment variable"
+  - pattern: "*secret*"
+  - pattern: "*token*"
+  - pattern: "*api_key*"
+  - pattern: "*apikey*"
+  - pattern: "*private_key*"
+
+mandatory_query_params:
+  - function: "execute"
+    param_arg_index: 0
+    violation_msg: "Use parameterized queries — pass params as tuple, not f-string or % formatting"
+  - function: "executemany"
+    param_arg_index: 0

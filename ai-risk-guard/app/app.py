@@ -6,44 +6,93 @@ Phase 2 GitHub Webhook & Analytics Server
 Professional Enterprise Edition
 """
 
-import os
-import hmac
+import ast
+import base64
+import functools
 import hashlib
-import tempfile
+import hmac
+import os
+import secrets
 import subprocess
+import sys
+import tempfile
 import threading
-import re
-from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
+import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
+import requests
+from dotenv import load_dotenv
 from flask import (
     Flask,
-    request,
     jsonify,
+    redirect,
+    request,
+    send_from_directory,
+    session,
+    url_for,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-from dotenv import load_dotenv
-
-from utils.logger import logger
 from app.main import AIRiskGuard
+from core.cache.test_file_cache import TestFileCache
+from core.config import config
+from core.patch.llm_patcher import is_rate_limited, reset_rate_limit_state
+from core.scanner.diff_engine import (
+    DiffAwareScanner,
+)
+from core.scanner.test_file_fetcher import (
+    discover_and_fetch_test_file,
+    fetch_test_dependencies,
+)
+from core.triage.llm_triage import LLMTriage
 from services.github.auth import (
     generate_jwt,
     get_installation_token,
 )
+from services.github.codeql_provisioner import create_codeql_pr
+from services.github.reaction_sync import sync_reaction_feedback
 from services.github.reporter import (
+    check_all_alerts_dismissed,
+    create_check_run,
+    find_existing_bot_comment,
     post_pr_comment,
-)
-from core.scanner.diff_engine import (
-    DiffAwareScanner,
+    update_pr_comment,
+    upload_sarif_to_code_scanning,
 )
 from utils.db import (
-    init_db,
-    increment_dashboard,
-    record_feedback,
+    db_health,
+    delete_repo_by_full_name,
+    delete_repos_by_install,
+    get_all_findings,
+    get_all_scans,
     get_dashboard,
-    record_pr_finding,
     get_pr_findings,
+    get_repo,
+    get_repo_findings,
+    get_repo_scans,
+    get_repos,
+    get_scan,
+    get_scan_findings,
+    get_user,
+    is_repo_codeql_provisioned,
+    get_user_settings,
+    increment_dashboard,
+    init_db,
+    record_feedback,
+    record_finding,
+    record_pr_finding,
+    record_scan,
+    resolve_open_findings_for_pr,
+    sync_user_installations,
+    update_finding_status,
+    update_user_settings,
+    upsert_repo,
+    upsert_user,
 )
+from utils.logger import logger
 
 # =========================================================
 # INITIALIZATION
@@ -53,23 +102,169 @@ from utils.db import (
 load_dotenv(os.environ.get("PROJ_ENV", ".env"))
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+if not app.secret_key:
+    app.secret_key = secrets.token_hex(32)
+    logger.warning(
+        "FLASK_SECRET_KEY not set — generated a random key. "
+        "All sessions will be invalidated on the next restart. "
+        "Set FLASK_SECRET_KEY in your .env for production.",
+        "AUTH",
+    )
+app.config["MAX_CONTENT_LENGTH"] = config.app.webhook.max_request_size_bytes
+
+# Session cookie hardening
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes")
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[method-assign]
+
+
+def login_required(view):
+    """Require an authenticated GitHub session for dashboard data endpoints."""
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("user") and not session.get("github_id"):
+            return jsonify({"error": "Unauthorized"}), 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def _current_github_id():
+    """Return the authenticated user's github_id, or None."""
+    user = session.get("user")
+    if user:
+        return user.get("github_id")
+    return session.get("github_id")
 
 # Initialize security engines
 orchestrator = AIRiskGuard()
 diff_engine = DiffAwareScanner()
+
+# Path to React-built frontend
+import os as _os
+
+_static_dir = _os.path.join(_os.path.dirname(__file__), '..', 'static', 'frontend')
+
+
+# =========================================================
+# SECURITY HEADERS
+# =========================================================
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    # CORS headers are only needed when the frontend is served from a different origin
+    # (e.g., the Vite dev server). In production the SPA is served from the same origin,
+    # so the headers are omitted unless FRONTEND_ORIGIN is explicitly configured.
+    if FRONTEND_ORIGIN:
+        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+    origin = f" {FRONTEND_ORIGIN}" if FRONTEND_ORIGIN else ""
+    response.headers["Content-Security-Policy"] = (
+        f"default-src 'self'{origin}; "
+        f"script-src 'self' 'unsafe-inline'{origin}; "
+        f"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        f"font-src https://fonts.gstatic.com; "
+        f"img-src 'self' data: https://avatars.githubusercontent.com"
+    )
+    return response
+
+
+# =========================================================
+# FEEDBACK RATE LIMITER
+# =========================================================
+
+_feedback_rate: dict = {}
+_feedback_lock = threading.Lock()
+
+
+def _check_feedback_rate_limit(ip: str) -> bool:
+    now = time.time()
+    window = 60
+    with _feedback_lock:
+        _feedback_rate[ip] = [t for t in _feedback_rate.get(ip, []) if now - t < window]
+        if len(_feedback_rate[ip]) >= 10:
+            return True
+        _feedback_rate[ip].append(now)
+        return False
+
+
+# =========================================================
+# AUTH RATE LIMITER
+# =========================================================
+
+_auth_rate: dict = {}
+_auth_lock = threading.Lock()
+
+
+def _check_auth_rate_limit(ip: str) -> bool:
+    now = time.time()
+    window = 60
+    with _auth_lock:
+        _auth_rate[ip] = [t for t in _auth_rate.get(ip, []) if now - t < window]
+        if len(_auth_rate[ip]) >= 6:
+            return True
+        _auth_rate[ip].append(now)
+        return False
+
+
+# =========================================================
+# WEBHOOK DEDUPLICATION (TTL + bounded deque)
+# =========================================================
+
+_dedup_window = 300
+_delivered_webhooks: deque = deque(maxlen=1000)
+_dedup_lock = threading.Lock()
+
+
+def _is_delivery_duplicate(delivery_id: str) -> bool:
+    with _dedup_lock:
+        now = time.time()
+        while _delivered_webhooks and now - _delivered_webhooks[0][1] > _dedup_window:
+            _delivered_webhooks.popleft()
+        for did, _ in _delivered_webhooks:
+            if did == delivery_id:
+                return True
+        _delivered_webhooks.append((delivery_id, now))
+        return False
 
 # =========================================================
 # GLOBAL STATE & WORKERS
 # =========================================================
 
 # 1. Bounded Concurrency (Fix A)
-executor = ThreadPoolExecutor(max_workers=3)
+executor = ThreadPoolExecutor(max_workers=config.app.webhook.max_concurrent_analyses)
 
-# 2. Token Cache (Fix C)
-token_cache = {
-    "token": None,
-    "expiry": None
-}
+# 2. Analysis capacity gate — limits the executor's internal queue so a webhook
+#    flood cannot grow memory without bound. A permit is acquired on submit and
+#    released once the worker starts (see _run_analysis_slot).
+_analysis_slot = threading.BoundedSemaphore(config.app.webhook.max_concurrent_analyses)
+
+
+def _run_analysis_slot(*args):
+    """Release the capacity permit acquired at submit time, then run the analysis."""
+    try:
+        _analysis_slot.release()
+    except ValueError:
+        pass
+    run_async_analysis(*args)
+
+
+# 2. Token Cache (Fix C) — keyed by installation_id for multi-tenant isolation
+token_cache: dict[str, dict] = {}
+_token_lock = threading.Lock()
+
+IGNORED_DIRS = set(config.app.webhook.ignored_dirs)
+
+def is_ignored_path(file_path: str) -> bool:
+    """Helper to check if file resides in an ignored vendor or virtual environment directory."""
+    parts = file_path.replace("\\", "/").split("/")
+    return any(part in IGNORED_DIRS for part in parts)
 
 # =========================================================
 # ENVIRONMENT VARIABLES
@@ -78,12 +273,75 @@ token_cache = {
 GITHUB_WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
 GITHUB_APP_ID = os.environ.get("GITHUB_APP_ID", "")
 GITHUB_PRIVATE_KEY = os.environ.get("GITHUB_PRIVATE_KEY", "")
+FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "").rstrip("/")
+GITHUB_CLIENT_ID = os.environ.get("GITHUB_APP_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_APP_CLIENT_SECRET", "")
+
+# =========================================================
+# STARTUP INITIALIZATION (WSGI-safe)
+# =========================================================
+
+_REQUIRED_ENV = {
+    "GITHUB_WEBHOOK_SECRET": "webhook signature verification",
+    "GITHUB_APP_ID": "GitHub App JWT authentication",
+    "GITHUB_PRIVATE_KEY": "GitHub App JWT signing",
+    "GITHUB_APP_CLIENT_ID": "GitHub OAuth login",
+    "GITHUB_APP_CLIENT_SECRET": "GitHub OAuth token exchange",
+}
+
+
+def _check_required_env():
+    for var, purpose in _REQUIRED_ENV.items():
+        if not os.environ.get(var):
+            logger.warning(f"Missing env var {var} — required for {purpose}", "STARTUP")
+    for var, note in (
+        ("GEMINI_API_KEY", "LLM patch generation will fail"),
+        ("FLASK_SECRET_KEY", "sessions will be invalidated on every restart"),
+        ("GITHUB_APP_SLUG", "the install-app banner link will be hidden"),
+    ):
+        if not os.environ.get(var):
+            logger.warning(f"Missing env var {var} — {note}", "STARTUP")
+
+
+init_db()
+try:
+    from app.metrics import init_app_info
+    init_app_info()
+except Exception as e:
+    logger.warning(f"Failed to initialize app metrics: {e}", "STARTUP")
+_check_required_env()
+
+
+def _reaction_poller_loop():
+    """Daemon loop: harvest 🚀/👎 reactions on bot PR comments on an interval.
+
+    Polls the Reactions REST API because GitHub Apps have no ``reaction``
+    webhook event. The install-token cache is shared with webhook analysis.
+    """
+    interval = config.app.feedback.poll_interval_seconds
+    while True:
+        time.sleep(interval)
+        try:
+            sync_reaction_feedback(get_cached_token)
+        except Exception as e:
+            logger.error(f"Reaction poll cycle failed: {e}", "FEEDBACK")
+
+
+if config.app.feedback.enabled:
+    threading.Thread(target=_reaction_poller_loop, daemon=True, name="reaction-poller").start()
+    logger.info(
+        f"Reaction feedback poller started (every {config.app.feedback.poll_interval_seconds}s)",
+        "STARTUP",
+    )
 
 # =========================================================
 # HELPERS
 # =========================================================
 
 def verify_signature(payload, signature):
+    if not GITHUB_WEBHOOK_SECRET:
+        logger.warning("GITHUB_WEBHOOK_SECRET not set — rejecting request", "AUTH")
+        return False
     expected_signature = (
         "sha256=" +
         hmac.new(
@@ -95,116 +353,1073 @@ def verify_signature(payload, signature):
     return hmac.compare_digest(expected_signature, signature)
 
 
-def extract_type_from_markdown(body: str) -> str:
-    """Helper to extract vulnerability type from report markdown."""
-    match = re.search(r"### ⚠️ ([A-Z_]+)", body)
-    return match.group(1) if match else ""
+# =========================================================
+# TEST / SOURCE IMPORT COMPATIBILITY DIAGNOSTIC
+# =========================================================
+
+_KNOWN_TEST_IMPORTS = frozenset({
+    "pytest", "hypothesis", "requests", "flask", "sqlalchemy",
+    "bcrypt", "cryptography", "pydantic", "urllib3", "certifi",
+    "jinja2", "markupsafe", "werkzeug", "six", "dotenv", "mock",
+})
+
+
+def _test_import_roots(test_content: str) -> set:
+    """Return the top-level import roots found in a test file."""
+    try:
+        tree = ast.parse(test_content)
+    except (SyntaxError, TypeError):
+        return set()
+    roots = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                roots.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            roots.add(node.module.split(".")[0])
+    return roots
+
+
+def _log_test_import_mismatch(test_content: str, source_filename: str, repo_root: str | None = None) -> None:
+    """Warn when a fetched test file imports modules that cannot resolve
+    against the scanned source file (e.g. imports from a ``tests`` package
+    that does not exist in the PR).
+
+    Only flags imports that are not standard library, not a known third-party
+    package, not the module under test, and not a repo-local package staged
+    alongside the scanned source.
+    """
+    stdlib: frozenset[str] = getattr(sys, "stdlib_module_names", frozenset())
+    roots = _test_import_roots(test_content)
+    if not roots:
+        return
+    source_stem = os.path.splitext(os.path.basename(source_filename))[0].lower()
+    unresolved = sorted(
+        root for root in roots
+        if root.lower() != source_stem
+        and root not in stdlib
+        and root not in _KNOWN_TEST_IMPORTS
+        and not _root_is_repo_local(root, source_filename, repo_root)
+    )
+    if unresolved:
+        logger.warning(
+            f"Test file imports {', '.join(unresolved)} which cannot be resolved against "
+            f"scanned source {source_filename} — regression tests may fail to run",
+            "WEBHOOK",
+        )
+
+
+def _root_is_repo_local(root: str, source_filename: str, repo_root: str | None) -> bool:
+    """Return True when ``root`` resolves to a package/module stored in the
+    scanned repo mirror rather than an external import.
+
+    Mirrors the dependency fetcher's notion of a module-under-test / sibling
+    package so we don't emit a false-positive warning for imports the runtime
+    rebinding is expected to handle.
+    """
+    from core.scanner.test_file_fetcher import _module_file_candidates
+
+    source_dir = os.path.dirname(source_filename) if repo_root is None else os.path.join(
+        repo_root, os.path.dirname(source_filename) or "."
+    )
+    search_root = source_dir or "."
+    for module in (f"{root}.__init__", root):
+        for rel_path in _module_file_candidates(module):
+            if os.path.exists(os.path.join(search_root, rel_path)):
+                return True
+    return False
 
 
 def get_cached_token(installation_id):
     """Retrieve or refresh the installation token with caching (Fix C)."""
-    global token_cache
-    now = datetime.now()
-    
-    if token_cache["token"] and token_cache["expiry"] > now:
-        return token_cache["token"]
-        
-    logger.info("Refreshing GitHub installation token", "AUTH")
-    jwt_token = generate_jwt(GITHUB_APP_ID, GITHUB_PRIVATE_KEY)
-    new_token = get_installation_token(jwt_token, installation_id)
-    
-    token_cache["token"] = new_token
-    token_cache["expiry"] = now + timedelta(minutes=55)
-    return new_token
+    with _token_lock:
+        now = datetime.now(UTC)
+        entry = token_cache.get(installation_id)
+        if entry and entry["token"]:
+            expiry = entry["expiry"]
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=UTC)
+            if expiry > now:
+                return entry["token"]
+
+        logger.info("Refreshing GitHub installation token", "AUTH")
+        jwt_token = generate_jwt(GITHUB_APP_ID, GITHUB_PRIVATE_KEY)
+        new_token = get_installation_token(jwt_token, installation_id)
+
+        token_cache[installation_id] = {
+            "token": new_token,
+            "expiry": now + timedelta(minutes=55),
+        }
+        return new_token
 
 # =========================================================
 # BACKGROUND WORKER
 # =========================================================
 
-def run_async_analysis(repo_name, pr_number, installation_id, branch_name):
+def run_async_analysis(repo_name, repo_id, pr_number, pr_title, installation_id, branch_name, commit_sha=None):
     """
-    Long-running analysis task executed in a background worker (Fix A).
+    Zero-Cost Lightweight Ingestion Engine (Phase 2).
+    Fetches modified PR files directly in memory via GitHub API without disk git clone.
     """
+    import time
+    scan_start = time.time()
+    access_token = None
+    reset_rate_limit_state()
+
+    try:
+        from app.metrics import (
+            active_analyses,
+            scan_total,
+            vulnerabilities_active,
+            vulnerabilities_total,
+        )
+        active_analyses.inc()
+    except ImportError:
+        active_analyses = scan_total = vulnerabilities_total = vulnerabilities_active = None
+
     try:
         access_token = get_cached_token(installation_id)
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/vnd.github+json"
+        }
+
+        # 1. Fetch list of modified files in PR via GitHub API (paginated)
+        pr_files = []
+        page = 1
+        max_pages = 10  # safety limit (1000 files)
+        while page <= max_pages:
+            files_url = f"https://api.github.com/repos/{repo_name}/pulls/{pr_number}/files?per_page=100&page={page}"
+            response = requests.get(files_url, headers=headers, timeout=15)
+
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch PR files: {response.text}", "WEBHOOK")
+                if scan_total:
+                    scan_total.labels(status="failure").inc()
+                return
+
+            page_files = response.json()
+            if not page_files:
+                break
+            pr_files.extend(page_files)
+            page += 1
+
+        logger.info(f"Retrieved {len(pr_files)} modified files from GitHub PR API", "WEBHOOK")
+
+        findings = []
+        findings_lock = threading.Lock()
+        timeout = getattr(config.app.webhook, "analysis_timeout_seconds", 300)
+
+        def _is_test_file(path: str) -> bool:
+            normalized = path.lower()
+            basename = normalized.rsplit("/", 1)[-1]
+            return (
+                basename.startswith("test_")
+                or basename.endswith("_test.py")
+                or "/tests/" in normalized
+                or "\\tests\\" in normalized
+            )
+
+        def _scan_single_file(file_info):
+            filename = file_info.get("filename", "")
+            status = file_info.get("status", "")
+            patch_diff = file_info.get("patch", "")
+
+            if time.time() - scan_start > timeout:
+                return
+
+            if not filename.endswith(".py") or status == "removed" or is_ignored_path(filename):
+                return
+
+            if _is_test_file(filename):
+                logger.info(f"Skipping test file: {filename}", "WEBHOOK")
+                return
+
+            logger.info(f"Scanning modified file: {filename}", "WEBHOOK")
+
+            contents_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}?ref={branch_name}"
+            content_res = requests.get(contents_url, headers=headers, timeout=15)
+            if content_res.status_code != 200:
+                logger.warning(f"Could not fetch content for {filename}: {content_res.text}", "WEBHOOK")
+                return
+
+            file_data = content_res.json()
+            raw_content = base64.b64decode(file_data.get("content", "")).decode("utf-8", errors="ignore")
+
+            temp_file_path = os.path.join(temp_dir, filename.replace("/", os.sep))
+            os.makedirs(os.path.dirname(temp_file_path), exist_ok=True)
+            with open(temp_file_path, "w", encoding="utf-8") as f:
+                f.write(raw_content)
+
+            if not _is_test_file(filename):
+                test_cache = TestFileCache()
+                test_content, test_path = discover_and_fetch_test_file(
+                    repo_name=repo_name,
+                    branch=branch_name,
+                    source_file=filename,
+                    access_token=access_token,
+                    cache=test_cache,
+                    commit_sha=commit_sha or "",
+                )
+                if test_content and test_path:
+                    test_temp_path = os.path.join(temp_dir, test_path.replace("/", os.sep))
+                    os.makedirs(os.path.dirname(test_temp_path), exist_ok=True)
+                    logger.info(f"Saved test file: {test_temp_path}", "WEBHOOK")
+                    with open(test_temp_path, "w", encoding="utf-8") as tf:
+                        tf.write(test_content)
+                    _log_test_import_mismatch(test_content, filename, repo_root=temp_dir)
+                    test_deps = fetch_test_dependencies(
+                        repo_name=repo_name,
+                        branch=branch_name,
+                        source_file=filename,
+                        test_content=test_content,
+                        access_token=access_token,
+                        cache=test_cache,
+                        known_packages=_KNOWN_TEST_IMPORTS,
+                        commit_sha=commit_sha or "",
+                    )
+                    for dep in test_deps:
+                        dep_path = os.path.join(temp_dir, dep["path"].replace("/", os.sep))
+                        os.makedirs(os.path.dirname(dep_path), exist_ok=True)
+                        with open(dep_path, "w", encoding="utf-8") as df:
+                            df.write(dep["content"])
+                    if test_deps:
+                        logger.info(f"Staged {len(test_deps)} test dependency files", "WEBHOOK")
+                        file_context = dict(pr_context, test_file_path=test_temp_path, test_deps=test_deps)
+                    else:
+                        file_context = dict(pr_context, test_file_path=test_temp_path)
+                else:
+                    file_context = pr_context
+
+            result = orchestrator.analyze_file(
+                file_path=temp_file_path,
+                repo_root=temp_dir,
+                pr_context=file_context,
+                diff_data=patch_diff
+            )
+
+            for r in result:
+                if "vulnerability" in r:
+                    r["vulnerability"]["file"] = filename
+                    r["vulnerability"]["file_rel"] = filename
+
+            with findings_lock:
+                findings.extend(result)
+
+        pr_context = {
+            "repo_name": repo_name,
+            "pr_number": pr_number,
+            "access_token": access_token,
+            "commit_sha": commit_sha,
+        }
+
+        # Resolve the owning user's scan settings once per scan (repo is
+        # already upserted by the webhook handler, so user_id is available).
+        # Unattributed repos fall back to system defaults.
+        try:
+            repo_row = get_repo(repo_id)
+            owner_uid = repo_row.get("user_id") if repo_row else None
+            scan_settings = get_user_settings(owner_uid)
+        except Exception as e:
+            logger.warning(f"Could not resolve scan settings for repo {repo_id}: {e}", "WEBHOOK")
+            scan_settings = get_user_settings()
+        pr_context["scan_settings"] = scan_settings
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            repo_dir = os.path.join(temp_dir, "repo")
-            clone_command = ["git", "clone", "--depth", "1", "--branch", branch_name,
-                             f"https://x-access-token:{access_token}@github.com/{repo_name}.git", repo_dir]
-            subprocess.run(clone_command, check=True, capture_output=True, text=True)
-            logger.info("Repository cloned", "WEBHOOK")
+            file_workers = min(len(pr_files), 3)
+            with ThreadPoolExecutor(max_workers=file_workers) as pool:
+                futures = [pool.submit(_scan_single_file, fi) for fi in pr_files]
+                for future in as_completed(futures):
+                    try:
+                        exc = future.exception()
+                        if exc:
+                            logger.error(f"File scan failed: {exc}", "WEBHOOK")
+                    except Exception as e:
+                        logger.error(f"Unexpected file scan error: {e}", "WEBHOOK")
 
-            findings = []
-            for root, dirs, files in os.walk(repo_dir):
-                if ".git" in dirs: dirs.remove(".git")
-                for file in files:
-                    if not file.endswith(".py"): continue
-                    file_path = os.path.join(root, file)
-                    logger.info(f"Scanning file: {file}", "WEBHOOK")
+        if findings:
+            elapsed = time.time() - scan_start
+            orch_context = orchestrator.run_orchestrator(results=findings, pr_context=pr_context)
+            orch_context["scan_duration"] = elapsed
+            executive_decision = orch_context.get("executive_decision", "COMMENT")
 
-                    # Prepare PR metadata for autonomous decisions
-                    pr_context = {
-                        "repo_name": repo_name,
-                        "pr_number": pr_number,
-                        "access_token": access_token
-                    }
+            def _post_comment():
+                llm_summary = None
+                if getattr(config.app.summary, "enabled", True) and findings:
+                    try:
+                        llm_summary = LLMTriage().summarize_analysis(findings)
+                    except Exception as e:
+                        logger.warning(f"LLM summary generation failed: {e}", "WEBHOOK")
+                post_pr_comment(
+                    repository=repo_name,
+                    pr_number=pr_number,
+                    results=findings,
+                    access_token=access_token,
+                    rate_limited=is_rate_limited(),
+                    action=executive_decision,
+                    scan_start=scan_start,
+                    commit_sha=commit_sha,
+                    scan_mode=(scan_settings or {}).get("scan_mode"),
+                    llm_summary=llm_summary,
+                )
 
-                    result = orchestrator.analyze_file(
-                        file_path=file_path, 
-                        repo_root=repo_dir,
-                        pr_context=pr_context
+            def _upload_sarif():
+                sarif_output = orch_context.get("sarif_output")
+                sarif_commit_sha = orch_context.get("sarif_commit_sha")
+                if sarif_output and sarif_commit_sha:
+                    if getattr(config.app.sarif, "skip_if_all_dismissed", False):
+                        try:
+                            if check_all_alerts_dismissed(repo_name, access_token, sarif_output, pr_number):
+                                return
+                        except Exception as e:
+                            logger.warning(f"Dismissed-alert check failed: {e}, proceeding with upload", "WEBHOOK")
+                    upload_sarif_to_code_scanning(
+                        repo_name, pr_number, access_token, sarif_output, sarif_commit_sha
                     )
-                    findings.extend(result)
 
-            if findings:
-                post_pr_comment(repository=repo_name, pr_number=pr_number, results=findings, access_token=access_token)
-                
-                # Metrics update
-                max_severity = "LOW"
-                for f in findings:
-                    sev = f["vulnerability"].get("severity", "LOW")
-                    vuln_type = f["vulnerability"].get("type")
-                    
-                    # Record finding for merge tracking (Phase 3)
-                    record_pr_finding(pr_number, vuln_type)
+            def _create_check():
+                if not getattr(config.app.checks, "create_check", True):
+                    return
+                if not commit_sha:
+                    logger.warning("No commit SHA available — skipping Check Run", "WEBHOOK")
+                    return
+                create_check_run(
+                    repo_name, pr_number, access_token, findings, commit_sha
+                )
 
-                    if sev == "HIGH": max_severity = "HIGH"
-                    if sev == "MEDIUM" and max_severity != "HIGH": max_severity = "MEDIUM"
+            with ThreadPoolExecutor(max_workers=3) as parallel_pool:
+                comment_future = parallel_pool.submit(_post_comment)
+                sarif_future = parallel_pool.submit(_upload_sarif)
+                check_future = parallel_pool.submit(_create_check)
+                for f in (comment_future, sarif_future, check_future):
+                    try:
+                        f.result()
+                    except Exception as e:
+                        logger.error(f"Post-PR task failed: {e}", "WEBHOOK")
+            
+            # Metrics update
+            max_severity = "LOW"
+            for f in findings:
+                sev = f["vulnerability"].get("severity", "LOW")
+                vuln_type = f["vulnerability"].get("type")
                 
-                increment_dashboard(total_vulns=len(findings), risk_level=max_severity)
-                logger.info("PR report posted and dashboard updated", "WEBHOOK")
-            else:
-                logger.info("No vulnerabilities found", "WEBHOOK")
+                # Record finding for merge tracking (Phase 3)
+                record_pr_finding(pr_number, vuln_type)
+
+                # Record Prometheus vulnerability metrics
+                if vulnerabilities_total:
+                    vulnerabilities_total.labels(type=vuln_type or "UNKNOWN", severity=sev).inc()
+                if vulnerabilities_active:
+                    vulnerabilities_active.labels(severity=sev).inc()
+
+                if sev == "HIGH": max_severity = "HIGH"
+                if sev == "MEDIUM" and max_severity != "HIGH": max_severity = "MEDIUM"
+            
+            increment_dashboard(total_vulns=len(findings), risk_level=max_severity)
+            logger.info("PR report posted and dashboard updated", "WEBHOOK")
+
+            # Persist scan and findings
+            action_risks = [f.get("risk", 0) for f in findings if not f.get("is_silent")]
+            scan_id = record_scan(
+                repo_id=repo_id, pr_number=pr_number, pr_title=pr_title,
+                branch=branch_name, commit_sha=commit_sha or "",
+                findings_count=len(findings),
+                max_risk=max(action_risks, default=0),
+                duration_ms=int((time.time() - scan_start) * 1000),
+            )
+            for f in findings:
+                v = f.get("vulnerability", {})
+                record_finding(
+                    scan_id=scan_id,
+                    vuln_type=v.get("type", "UNKNOWN"),
+                    severity=v.get("severity", "MEDIUM"),
+                    risk_score=f.get("risk", 0),
+                    file_path=v.get("file", ""),
+                    line_number=v.get("line", 0),
+                    is_new=1 if v.get("is_new") else 0,
+                )
+        else:
+            logger.info("No vulnerabilities found — SARIF upload skipped", "WEBHOOK")
+            record_scan(
+                repo_id=repo_id, pr_number=pr_number, pr_title=pr_title,
+                branch=branch_name, commit_sha=commit_sha or "",
+                findings_count=0, max_risk=0,
+                duration_ms=int((time.time() - scan_start) * 1000),
+            )
+
+        # Record scan success and duration
+        if scan_total:
+            scan_total.labels(status="success").inc()
+        import app.metrics as _m
+        if _m.scan_duration:
+            _m.scan_duration.observe(time.time() - scan_start)
 
     except Exception as e:
         logger.error(f"Background analysis failed: {e}", "WEBHOOK")
+        try:
+            if scan_total:
+                scan_total.labels(status="failure").inc()
+            import app.metrics as _m
+            if _m.scan_duration:
+                _m.scan_duration.observe(time.time() - scan_start)
+        except Exception:
+            pass
+
+        # Post error comment and failed check run on PR
+        try:
+            if not access_token:
+                access_token = get_cached_token(installation_id)
+            if not access_token:
+                return
+
+            prev_scan_number = 0
+            existing = None
+            if getattr(config.app.sarif, "comment_on_pr", True):
+                if getattr(config.app.sarif, "update_existing_comment", True):
+                    existing = find_existing_bot_comment(repo_name, pr_number, access_token)
+                if existing is not None:
+                    prev_scan_number = existing[1]
+
+            error_body = (
+                "# 🔐 AI Risk Guard — Analysis Failed\n\n"
+                f"> **Error**: Analysis failed — see logs for details\n"
+                f"> **PR**: #{pr_number}\n\n"
+                "The scan could not complete. Common causes:\n"
+                "- Analysis exceeded timeout (configurable via `analysis_timeout_seconds`)\n"
+                "- GitHub API rate limit exceeded\n"
+                "- Gemini API unavailable\n\n"
+                "Please push a new commit to re-trigger analysis.\n"
+                f"<!-- ai-risk-guard scan:{prev_scan_number} -->\n"
+            )
+
+            if existing is not None:
+                comment_id = existing[0]
+                update_pr_comment(repo_name, comment_id, access_token, error_body)
+            else:
+                comment_url = (
+                    f"https://api.github.com/repos/"
+                    f"{repo_name}/issues/{pr_number}/comments"
+                )
+                headers = {
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                }
+                requests.post(comment_url, json={"body": error_body}, headers=headers, timeout=15)
+
+        except Exception as inner:
+            logger.error(f"Error reporting failed: {inner}", "WEBHOOK")
+
+    finally:
+        try:
+            if active_analyses:
+                active_analyses.dec()
+        except Exception:
+            pass
 
 # =========================================================
 # ROUTES
 # =========================================================
 
-@app.route("/", methods=["GET"])
+@app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({
         "status": "AI Risk Guard Active",
         "endpoints": {
             "/webhook": "POST - GitHub Webhook Receiver",
-            "/feedback": "POST - Record patch feedback (ACCEPTED/REJECTED)",
+            "/api/feedback": "POST - Record patch feedback (ACCEPTED/REJECTED)",
+            "/feedback": "POST - Legacy alias for patch feedback",
             "/dashboard": "GET - Visual Analytics Dashboard",
             "/api/metrics": "GET - JSON Metrics for Dashboard",
-            "/api/policy": "GET - Current Security Policy"
+            "/api/policy": "GET - Current Security Policy",
+            "/auth/login": "GET - GitHub OAuth Login",
+            "/auth/logout": "GET - Logout",
+            "/api/me": "GET - Current user info"
         }
     })
 
 
+@app.route("/auth/login", methods=["GET"])
+def auth_login():
+    if not GITHUB_CLIENT_ID:
+        return jsonify({"error": "GitHub OAuth not configured"}), 503
+
+    ip = request.remote_addr or "unknown"
+    if _check_auth_rate_limit(ip):
+        logger.warning(f"Auth rate limit exceeded for {ip}", "AUTH")
+        return jsonify({"error": "Too many requests"}), 429
+
+    state = secrets.token_urlsafe(16)
+    session["oauth_state"] = state
+
+    logger.info(f"OAuth callback URL: {url_for('auth_callback', _external=True)}", "AUTH")
+    redirect_uri = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={GITHUB_CLIENT_ID}"
+        f"&state={state}"
+        f"&scope=read:user"
+    )
+    return redirect(redirect_uri)
+
+
+@app.route("/auth/callback", methods=["GET"])
+def auth_callback():
+    state = request.args.get("state")
+    expected_state = session.pop("oauth_state", None)
+    if not state or not expected_state or not secrets.compare_digest(state, expected_state):
+        return redirect("/?error=login_failed&reason=state_mismatch")
+
+    code = request.args.get("code")
+    if not code:
+        return redirect("/?error=login_failed&reason=missing_code")
+
+    try:
+        token_resp = requests.post(
+            "https://github.com/login/oauth/access_token",
+            json={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("Token exchange request failed")
+        return redirect("/?error=login_failed&reason=token_exchange")
+
+    if token_resp.status_code != 200:
+        return redirect("/?error=login_failed&reason=token_exchange_status")
+
+    token_data = token_resp.json()
+    access_token = token_data.get("access_token")
+    if not access_token:
+        return redirect("/?error=login_failed&reason=no_token")
+
+    try:
+        user_resp = requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("User fetch request failed")
+        return redirect("/?error=login_failed&reason=user_fetch")
+
+    if user_resp.status_code != 200:
+        return redirect("/?error=login_failed&reason=user_fetch_status")
+
+    user_data = user_resp.json()
+    github_id = user_data.get("id")
+    if not github_id:
+        return redirect("/?error=login_failed&reason=no_github_id")
+
+    login = user_data.get("login", "")
+    name = user_data.get("name") or login
+    avatar_url = user_data.get("avatar_url", "")
+
+    upsert_user(github_id, login, name, avatar_url)
+
+    # If the GitHub App is not installed on any repository, don't create a
+    # session. Return to the login page with a graceful notice instead of
+    # sending the user to an empty dashboard.
+    installations = _get_installation_count(github_id, access_token)
+    if installations == 0:
+        redirect_target = "/login?error=no_installations"
+        install_url = _github_app_install_url()
+        if install_url:
+            redirect_target += f"&install_url={quote(install_url, safe='')}"
+        return redirect(redirect_target)
+
+    session["user"] = {
+        "github_id": github_id,
+        "login": login,
+        "name": name,
+        "avatar_url": avatar_url,
+    }
+    session["github_id"] = github_id
+    session["github_access_token"] = access_token
+    if token_data.get("expires_in"):
+        session["github_token_expires_at"] = time.time() + token_data["expires_in"]
+    if token_data.get("refresh_token"):
+        session["github_refresh_token"] = token_data["refresh_token"]
+
+    # Record which installations this user can access and their repos so the
+    # dashboard and scan attribution are per-user from the first request.
+    _sync_repos_from_github(github_id, access_token)
+
+    return redirect("/dashboard")
+
+
+@app.route("/auth/logout", methods=["GET"])
+def auth_logout():
+    session.pop("user", None)
+    session.pop("github_id", None)
+    _clear_session_token()
+    return redirect("/")
+
+
+@app.route("/api/me", methods=["GET"])
+def api_me():
+    user = session.get("user")
+    if user:
+        token = _get_valid_access_token()
+        return jsonify({
+            "authenticated": True,
+            "user": user,
+            "installations": _get_installation_count(user.get("github_id"), token),
+            "install_url": _github_app_install_url(),
+        })
+
+    github_id = session.get("github_id")
+    if github_id:
+        db_user = get_user(github_id)
+        if db_user:
+            session["user"] = {
+                "github_id": db_user["github_id"],
+                "login": db_user["login"],
+                "name": db_user["name"],
+                "avatar_url": db_user["avatar_url"],
+            }
+            token = _get_valid_access_token()
+            return jsonify({
+                "authenticated": True,
+                "user": session["user"],
+                "installations": _get_installation_count(db_user["github_id"], token),
+                "install_url": _github_app_install_url(),
+            })
+
+    return jsonify({"authenticated": False, "user": None, "installations": -1, "install_url": ""})
+
+
+@app.route("/api/repos", methods=["GET"])
+@login_required
+def api_repos():
+    repos = get_repos(_current_github_id())
+    return jsonify({"repos": repos})
+
+
+@app.route("/api/repos/<int:repo_id>", methods=["GET"])
+@login_required
+def api_repo(repo_id):
+    repo = get_repo(repo_id, _current_github_id())
+    if not repo:
+        return jsonify({"error": "Repo not found"}), 404
+    return jsonify(repo)
+
+
+@app.route("/api/repos/<int:repo_id>/scans", methods=["GET"])
+@login_required
+def api_repo_scans(repo_id):
+    scans = get_repo_scans(repo_id, _current_github_id())
+    return jsonify({"scans": scans})
+
+
+@app.route("/api/scans/<int:scan_id>", methods=["GET"])
+@login_required
+def api_scan(scan_id):
+    """Return a single scan record."""
+    scan = get_scan(scan_id, _current_github_id())
+    if not scan:
+        return jsonify({"error": "Scan not found"}), 404
+    return jsonify({"scan": scan})
+
+
+@app.route("/api/scans/<int:scan_id>/findings", methods=["GET"])
+@login_required
+def api_scan_findings(scan_id):
+    """Return findings for a single scan record."""
+    uid = _current_github_id()
+    # Ensure scan exists and is visible to this user before fetching findings
+    if not get_scan(scan_id, uid):
+        return jsonify({"error": "Scan not found"}), 404
+    findings = get_scan_findings(scan_id, uid)
+    return jsonify({"findings": findings})
+
+
+@app.route("/api/repos/<int:repo_id>/findings", methods=["GET"])
+@login_required
+def api_repo_findings(repo_id):
+    findings = get_repo_findings(repo_id, _current_github_id())
+    return jsonify({"findings": findings})
+
+
+@app.route("/api/findings", methods=["GET"])
+@login_required
+def api_all_findings():
+    """Findings across all of the user's repos, optionally filtered."""
+    uid = _current_github_id()
+    if uid is None:
+        return jsonify({"error": "Unauthorized"}), 401
+    args = request.args
+    try:
+        repo_id = int(args.get("repo_id")) if args.get("repo_id") else None
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid repo_id"}), 400
+    status = args.get("status") or None
+    if status and status not in {"open", "resolved", "dismissed"}:
+        return jsonify({"error": "Invalid status"}), 400
+    severity = args.get("severity") or None
+    if severity and severity.upper() not in {"LOW", "MEDIUM", "HIGH"}:
+        return jsonify({"error": "Invalid severity"}), 400
+    vuln_type = args.get("type") or None
+    q = args.get("q") or None
+    try:
+        limit = int(args.get("limit", 200))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid limit"}), 400
+    findings = get_all_findings(
+        uid, repo_id=repo_id, severity=severity, vuln_type=vuln_type,
+        status=status, q=q, limit=min(max(limit, 1), 500),
+    )
+    return jsonify({"findings": findings})
+
+
+@app.route("/api/repos/<int:repo_id>/codeql", methods=["POST"])
+@login_required
+def api_repo_enable_codeql(repo_id):
+    """Manually open (or find) the CodeQL setup PR for a repository.
+
+    Also clears the lazy-provisioning guard so a later PR scan can retry.
+    Returns the setup PR URL when one exists or was created.
+    """
+    repo = get_repo(repo_id, _current_github_id())
+    if not repo:
+        return jsonify({"error": "Repo not found"}), 404
+    if not getattr(config.app.codeql, "enabled", True):
+        return jsonify({"error": "CodeQL provisioning is disabled by config"}), 400
+
+    full_name = repo.get("full_name")
+    install_id = repo.get("install_id")
+    if not full_name or not install_id:
+        return jsonify({"error": "Repository has no GitHub installation association"}), 400
+
+    try:
+        access_token = get_cached_token(install_id)
+    except Exception as e:
+        logger.error(f"CodeQL enable: could not get installation token: {e}", "CODEQL")
+        return jsonify({"error": "Failed to get GitHub installation token"}), 500
+
+    try:
+        pr_url = create_codeql_pr(
+            full_name,
+            access_token,
+            default_branch=repo.get("default_branch"),
+            language=repo.get("language"),
+        )
+        _clear_codeql_attempted(full_name)
+    except Exception as e:
+        logger.error(f"CodeQL enable failed for {full_name}: {e}", "CODEQL")
+        return jsonify({"error": f"CodeQL provisioning failed: {e}"}), 500
+
+    if pr_url:
+        return jsonify({"success": True, "pr_url": pr_url})
+    return jsonify({"success": False, "message": "No CodeQL setup PR opened — the workflow is likely already present or a setup PR is already open."})
+
+
+@app.route("/api/scans", methods=["GET"])
+@login_required
+def api_all_scans():
+    """Scans across all of the user's repos, optionally filtered."""
+    uid = _current_github_id()
+    if uid is None:
+        return jsonify({"error": "Unauthorized"}), 401
+    args = request.args
+    try:
+        repo_id = int(args.get("repo_id")) if args.get("repo_id") else None
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid repo_id"}), 400
+    status = args.get("status") or None
+    try:
+        limit = int(args.get("limit", 200))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid limit"}), 400
+    scans = get_all_scans(
+        uid, repo_id=repo_id, status=status, limit=min(max(limit, 1), 500),
+    )
+    return jsonify({"scans": scans})
+
+
+@app.route("/api/findings/<int:finding_id>/status", methods=["POST"])
+@login_required
+def api_finding_status(finding_id):
+    """Resolve, dismiss, or reopen a finding."""
+    data = request.get_json(silent=True) or {}
+    status = (data.get("status") or "").strip().lower()
+    if status not in {"open", "resolved", "dismissed"}:
+        return jsonify({"error": "Invalid status"}), 400
+    update_finding_status(finding_id, status)
+    return jsonify({"success": True, "id": finding_id, "status": status})
+
+
+_INSTALL_CACHE_TTL = 300
+_install_cache: dict[int, tuple[int, float]] = {}
+_install_cache_lock = threading.Lock()
+
+
+def _clear_install_cache():
+    """Invalidate all cached installation counts (e.g. after an install event)."""
+    with _install_cache_lock:
+        _install_cache.clear()
+
+
+_codeql_lazy_attempted: set[str] = set()
+_codeql_lazy_lock = threading.Lock()
+
+
+def _mark_codeql_attempted(full_name: str) -> bool:
+    """Atomically claim a repo for lazy CodeQL provisioning.
+
+    Returns True when this caller is the first to claim the repo (i.e. the
+    provisioning should actually run), False if already claimed this session.
+    """
+    with _codeql_lazy_lock:
+        if full_name in _codeql_lazy_attempted:
+            return False
+        _codeql_lazy_attempted.add(full_name)
+        return True
+
+
+def _clear_codeql_attempted(full_name: str):
+    """Allow a retry for a repo (e.g. from the dashboard enable button)."""
+    with _codeql_lazy_lock:
+        _codeql_lazy_attempted.discard(full_name)
+
+
+def _provision_codeql_for_repos(repos, installation_id, require_auto_provision: bool = True):
+    """Best-effort: open a CodeQL setup PR for each newly-added repository.
+
+    Runs on the background executor so the webhook ack is never delayed.
+    Skips silently when CodeQL provisioning is disabled; logs and continues
+    per-repo on errors (create_codeql_pr never raises).
+
+    ``require_auto_provision`` is True for fresh-install events but False for
+    the lazy first-PR-scan path (a repo installed before the feature existed
+    still deserves provisioning even when the install-time toggle is off).
+    """
+    if not getattr(config.app.codeql, "enabled", True):
+        logger.info("CodeQL provisioning disabled by config — skipping", "CODEQL")
+        return
+    if require_auto_provision and not getattr(config.app.codeql, "auto_provision", True):
+        logger.info("CodeQL auto-provisioning disabled — skipping", "CODEQL")
+        return
+
+    if not repos:
+        return
+
+    try:
+        access_token = get_cached_token(installation_id)
+    except Exception as e:
+        logger.error(f"CodeQL provisioning: could not get installation token: {e}", "CODEQL")
+        return
+
+    for repo in repos:
+        full_name = repo.get("full_name", "")
+        if not full_name:
+            continue
+        try:
+            create_codeql_pr(
+                full_name,
+                access_token,
+                default_branch=repo.get("default_branch"),
+                language=repo.get("language"),
+            )
+        except Exception as e:
+            logger.error(f"CodeQL provisioning failed for {full_name}: {e}", "CODEQL")
+
+
+def _clear_session_token():
+    """Drop OAuth token state so the user is forced to re-authenticate."""
+    session.pop("github_access_token", None)
+    session.pop("github_refresh_token", None)
+    session.pop("github_token_expires_at", None)
+
+
+def _refresh_github_token(refresh_token):
+    """Exchange a GitHub user-access refresh token for a new access token."""
+    try:
+        resp = requests.post(
+            "https://github.com/login/oauth/access_token",
+            json={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("access_token"):
+                return data
+        logger.warning(f"GitHub token refresh returned {resp.status_code}")
+    except requests.RequestException as e:
+        logger.warning(f"GitHub token refresh request failed: {e}")
+    return None
+
+
+def _get_valid_access_token():
+    """Return a usable GitHub user access token, refreshing when possible.
+
+    GitHub App user tokens expire (~8h by default) only when the app has token
+    expiration enabled; this is a no-op otherwise.
+    """
+    token = session.get("github_access_token")
+    if not token:
+        return None
+
+    expires_at = session.get("github_token_expires_at")
+    refresh_token = session.get("github_refresh_token")
+    if expires_at is not None and time.time() >= expires_at:
+        if refresh_token:
+            refreshed = _refresh_github_token(refresh_token)
+            if refreshed:
+                token = refreshed["access_token"]
+                session["github_access_token"] = token
+                session["github_token_expires_at"] = time.time() + refreshed.get("expires_in", 28800)
+                if refreshed.get("refresh_token"):
+                    session["github_refresh_token"] = refreshed["refresh_token"]
+                return token
+        _clear_session_token()
+        logger.warning("GitHub token expired and could not be refreshed — cleared session token", "AUTH")
+        return None
+    return token
+
+
+def _get_installation_count(github_id, access_token):
+    """Return the number of GitHub App installations for a user, cached with a TTL.
+
+    Returns -1 when the count is unknown (no token or GitHub API failure) so the
+    frontend never shows a misleading "install the app" banner.
+    """
+    if not access_token:
+        return -1
+
+    now = time.time()
+    with _install_cache_lock:
+        cached = _install_cache.get(github_id)
+        if cached and now - cached[1] < _INSTALL_CACHE_TTL:
+            return cached[0]
+
+    try:
+        resp = requests.get(
+            "https://api.github.com/user/installations",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            _clear_session_token()
+            logger.warning("GitHub token expired or revoked — cleared session token", "AUTH")
+            return -1
+        if resp.status_code != 200:
+            logger.warning(f"GitHub installations API returned {resp.status_code}")
+            return -1
+        count = len(resp.json().get("installations", []))
+        with _install_cache_lock:
+            _install_cache[github_id] = (count, now)
+        return count
+    except Exception as e:
+        logger.warning(f"Failed to fetch installation count from GitHub: {e}")
+        return -1
+
+
+def _github_app_install_url():
+    """Return the GitHub App installation URL, or '' when GITHUB_APP_SLUG is not set."""
+    slug = os.environ.get("GITHUB_APP_SLUG", "").strip()
+    if not slug:
+        return ""
+    return f"https://github.com/apps/{slug}/installations/new"
+
+
+def _sync_repos_from_github(github_id, access_token):
+    """Fetch installation repos + the install->user mapping for a user.
+
+    Records which installations the user can access (user_installations) and
+    upserts their repos so the dashboard and scan attribution are per-user.
+    """
+    try:
+        resp = requests.get(
+            "https://api.github.com/user/installations",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            _clear_session_token()
+            logger.warning("GitHub token expired or revoked — cleared session token", "AUTH")
+            return
+        if resp.status_code != 200:
+            logger.warning(f"GitHub installations API returned {resp.status_code}")
+            return
+
+        installations = resp.json().get("installations", [])
+        sync_user_installations(github_id, installations)
+        for inst in installations:
+            inst_id = inst.get("id")
+            if not inst_id:
+                continue
+
+            repos_resp = requests.get(
+                f"https://api.github.com/user/installations/{inst_id}/repositories",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+                timeout=10,
+            )
+            if repos_resp.status_code != 200:
+                logger.warning(f"Installation repos API returned {repos_resp.status_code} for install {inst_id}")
+                continue
+
+            for repo in repos_resp.json().get("repositories", []):
+                upsert_repo({
+                    "id": repo.get("id", 0),
+                    "full_name": repo.get("full_name", ""),
+                    "owner": (repo.get("owner") or {}).get("login", ""),
+                    "name": repo.get("name", ""),
+                    "description": repo.get("description") or "",
+                    "language": repo.get("language") or "",
+                    "private": 1 if repo.get("private") else 0,
+                    "default_branch": repo.get("default_branch", "main"),
+                    "install_id": inst_id,
+                })
+    except Exception as e:
+        logger.warning(f"Failed to sync repos from GitHub: {e}")
+
+
 @app.route("/api/metrics", methods=["GET"])
+@login_required
 def metrics():
-    """Returns JSON metrics for the dashboard."""
-    return jsonify(get_dashboard())
+    """Returns JSON metrics for the dashboard (scoped to the logged-in user)."""
+    return jsonify(get_dashboard(_current_github_id()))
+
+
+@app.route("/api/dashboard", methods=["GET"])
+@login_required
+def api_dashboard():
+    """Alias for /api/metrics — returns JSON dashboard data (per-user)."""
+    uid = _current_github_id()
+    repos = get_repos(uid)
+    if not repos:
+        token = _get_valid_access_token()
+        if token and uid is not None:
+            _sync_repos_from_github(uid, token)
+    return jsonify(get_dashboard(uid))
+
+
+@app.route("/api/metrics/prometheus", methods=["GET"])
+def prometheus_metrics():
+    """Returns Prometheus metrics in exposition format."""
+    from app.metrics import get_content_type, get_metrics
+    return get_metrics(), 200, {'Content-Type': get_content_type()}
+
+
+@app.route("/api/metrics/summary", methods=["GET"])
+@login_required
+def metrics_summary():
+    """Returns an aggregated JSON summary derived from in-process metrics."""
+    from app.metrics import build_metrics_summary
+    return jsonify(build_metrics_summary())
 
 
 @app.route("/api/policy", methods=["GET"])
+@login_required
 def get_policy_api():
     """Returns the current security policy."""
     from core.policy.policy_engine import PolicyEngine
@@ -212,356 +1427,138 @@ def get_policy_api():
     return jsonify(engine.policy)
 
 
+@app.route("/api/health/gemini", methods=["GET"])
+def gemini_health():
+    """Lightweight Gemini connectivity check (env var only — no API call)."""
+    configured = bool(os.environ.get("GEMINI_API_KEY"))
+    return jsonify({
+        "status": "online" if configured else "offline",
+        "configured": configured
+    })
+
+
+@app.route("/api/health/db", methods=["GET"])
+def health_db():
+    """Writable SQLite connectivity check — useful for platform health checks."""
+    ok = db_health()
+    return jsonify({"status": "ok" if ok else "error"}), (200 if ok else 500)
+
+
+@app.route("/api/settings", methods=["GET"])
+@login_required
+def get_settings_api():
+    """Return the logged-in user's effective scan settings and available options."""
+    from core.validator.sandbox import Sandbox
+    from utils.db import SANDBOX_NETWORKS, SCAN_MODES, get_user_settings
+    uid = _current_github_id()
+    settings = get_user_settings(uid)
+    sandbox = Sandbox()
+    docker_available = sandbox._is_docker_available()
+    return jsonify({
+        "settings": settings,
+        "options": {
+            "scan_modes": list(SCAN_MODES),
+            "networks": list(SANDBOX_NETWORKS),
+            "docker_available": docker_available,
+        },
+    })
+
+
+@app.route("/api/settings", methods=["POST"])
+@login_required
+def update_settings_api():
+    """Persist the logged-in user's scan settings."""
+    uid = _current_github_id()
+    if uid is None:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    scan_mode = data.get("scan_mode")
+    sandbox_network = data.get("sandbox_network")
+    if scan_mode is None and sandbox_network is None:
+        return jsonify({"error": "Provide scan_mode and/or sandbox_network"}), 400
+    try:
+        settings = update_user_settings(uid, scan_mode=scan_mode, sandbox_network=sandbox_network)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"settings": settings, "saved": True})
+
+
+@app.route("/api/health/sandbox", methods=["GET"])
+def health_sandbox():
+    """Sandbox execution mode and Docker status (non-provisioning check)."""
+    from core.validator.sandbox import Sandbox
+    sandbox = Sandbox()
+    docker_available = sandbox._is_docker_available()
+    image_ready = sandbox.docker_image_available() if docker_available else False
+    return jsonify({
+        "docker_available": docker_available,
+        "image_ready": image_ready,
+        "mode": "docker" if docker_available and image_ready else "local",
+    })
+
+
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
-    """Serves the professional-grade visual analytics dashboard SPA."""
-    return """
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Risk Guard | Professional Security Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
-        
-        :root {
-            --bg: #030712;
-            --card: #111827;
-            --border: #1f2937;
-            --text-main: #f3f4f6;
-            --text-muted: #94a3b8;
-            --nav-bg: #111827;
-            --accent: #3b82f6;
-            --highlight: rgba(59, 130, 246, 0.1);
-        }
+    """Serves the React SPA dashboard."""
+    if _os.path.exists(_os.path.join(_static_dir, "index.html")):
+        return send_from_directory(_static_dir, "index.html")
+    return jsonify({"error": "Frontend not built. Run: cd frontend && npm run build"}), 404
 
-        [data-theme="light"] {
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --border: #e2e8f0;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --nav-bg: #ffffff;
-            --accent: #2563eb;
-            --highlight: rgba(37, 99, 235, 0.05);
-        }
 
-        body { 
-            font-family: 'Plus Jakarta Sans', sans-serif; 
-            background-color: var(--bg); 
-            color: var(--text-main);
-            transition: background-color 0.3s, color 0.3s;
-        }
-
-        .enterprise-card {
-            background-color: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 1rem;
-            transition: all 0.3s ease;
-        }
-
-        .enterprise-card:hover {
-            border-color: var(--accent);
-            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.1);
-        }
-
-        .nav-link {
-            color: var(--text-muted);
-            border-radius: 0.5rem;
-            transition: all 0.2s;
-            cursor: pointer;
-        }
-
-        .nav-link:hover, .nav-link.active {
-            color: var(--text-main);
-            background-color: var(--highlight);
-        }
-
-        .stat-icon {
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 0.75rem;
-            background: var(--highlight);
-            color: var(--accent);
-        }
-        
-        .scroll-container {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
-    </style>
-</head>
-<body class="min-h-screen">
-    <div class="flex">
-        <!-- Sidebar -->
-        <aside class="w-64 h-screen sticky top-0 border-r p-6 flex flex-col hidden lg:flex" style="background-color: var(--nav-bg); border-color: var(--border);">
-            <div class="flex items-center gap-3 mb-10">
-                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-blue-500/20 shadow-lg">
-                    <i class="fas fa-shield-halved text-white text-sm"></i>
-                </div>
-                <span class="text-lg font-bold tracking-tight" style="color: var(--text-main)">AI Risk <span class="text-blue-500">Guard</span></span>
-            </div>
-
-            <nav class="space-y-1 flex-grow">
-                <a onclick="showView('overview')" id="nav-overview" class="nav-link active flex items-center gap-3 px-4 py-2 text-sm font-medium">
-                    <i class="fas fa-chart-pie"></i> Overview
-                </a>
-                <a onclick="showView('agents')" id="nav-agents" class="nav-link flex items-center gap-3 px-4 py-2 text-sm font-medium">
-                    <i class="fas fa-robot"></i> Agents
-                </a>
-                <a onclick="showView('policies')" id="nav-policies" class="nav-link flex items-center gap-3 px-4 py-2 text-sm font-medium">
-                    <i class="fas fa-file-shield"></i> Policies
-                </a>
-            </nav>
-
-            <div class="mt-auto">
-                <div class="p-4 rounded-xl bg-blue-500/5 border border-blue-500/10">
-                    <p class="text-[10px] uppercase font-bold tracking-widest text-blue-500 mb-2 text-center">Engine Status</p>
-                    <div class="flex items-center justify-center gap-2">
-                        <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        <span class="text-xs font-semibold">Gemini Online</span>
-                    </div>
-                </div>
-            </div>
-        </aside>
-
-        <!-- Main -->
-        <main class="flex-grow p-6 lg:p-8">
-            <header class="flex justify-between items-center mb-8">
-                <h2 class="text-2xl font-extrabold tracking-tight" id="view-title">Executive Overview</h2>
-                <div class="flex items-center gap-3">
-                    <button id="theme-toggle" class="enterprise-card w-10 h-10 flex items-center justify-center hover:scale-105 transition-transform">
-                        <i class="fas fa-moon dark:hidden"></i>
-                        <i class="fas fa-sun hidden dark:block text-yellow-400"></i>
-                    </button>
-                </div>
-            </header>
-
-            <!-- VIEW: OVERVIEW -->
-            <div id="view-overview" class="view-content">
-                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
-                    <div class="enterprise-card p-5">
-                        <div class="stat-icon mb-3"><i class="fas fa-code-merge"></i></div>
-                        <p class="text-[10px] uppercase font-bold text-muted tracking-widest" style="color: var(--text-muted)">Scans Conducted</p>
-                        <h3 class="text-2xl font-bold" id="stat-prs">0</h3>
-                    </div>
-                    <div class="enterprise-card p-5">
-                        <div class="stat-icon bg-red-500/10 text-red-500 mb-3"><i class="fas fa-shield-virus"></i></div>
-                        <p class="text-[10px] uppercase font-bold text-muted tracking-widest" style="color: var(--text-muted)">Vulnerabilities</p>
-                        <h3 class="text-2xl font-bold text-red-500" id="stat-vulns">0</h3>
-                    </div>
-                    <div class="enterprise-card p-5">
-                        <div class="stat-icon bg-orange-500/10 text-orange-500 mb-3"><i class="fas fa-fire"></i></div>
-                        <p class="text-[10px] uppercase font-bold text-muted tracking-widest" style="color: var(--text-muted)">Avg Risk Score</p>
-                        <h3 class="text-2xl font-bold text-orange-400">7.6</h3>
-                    </div>
-                    <div class="enterprise-card p-5">
-                        <div class="stat-icon bg-green-500/10 text-green-500 mb-3"><i class="fas fa-circle-check"></i></div>
-                        <p class="text-[10px] uppercase font-bold text-muted tracking-widest" style="color: var(--text-muted)">Remediation Rate</p>
-                        <h3 class="text-2xl font-bold text-green-500">92.4%</h3>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                    <div class="enterprise-card p-6 flex flex-col items-center justify-center">
-                        <h4 class="text-xs font-bold uppercase tracking-widest mb-6 opacity-50">Risk Distribution</h4>
-                        <div class="w-48 h-48 relative">
-                            <canvas id="riskChart"></canvas>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                                <span class="text-xl font-bold" id="total-vulns-center">0</span>
-                                <span class="text-[10px] uppercase font-bold opacity-40">Total</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="enterprise-card xl:col-span-2 p-6 overflow-hidden">
-                        <h4 class="text-xs font-bold uppercase tracking-widest mb-6 opacity-50">Recent Agentic Interventions</h4>
-                        <div class="scroll-container">
-                            <table class="w-full text-left text-sm">
-                                <thead class="border-b border-gray-800/50">
-                                    <tr class="text-[10px] uppercase font-bold opacity-40">
-                                        <th class="pb-3 px-2">Bug Type</th>
-                                        <th class="pb-3 px-2">Decision</th>
-                                        <th class="pb-3 px-2 text-right">Confidence</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="agent-feed" class="divide-y divide-gray-800/20">
-                                    <tr class="text-gray-500 italic"><td colspan="3" class="py-4 text-center">Awaiting scan data...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- VIEW: AGENTS -->
-            <div id="view-agents" class="view-content hidden">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="enterprise-card p-6 border-l-4 border-l-blue-500">
-                        <h4 class="font-bold mb-2 flex items-center gap-2 text-blue-400">
-                            <i class="fas fa-eye text-sm"></i> Scanner Agent
-                        </h4>
-                        <p class="text-sm opacity-70">Utilizes high-precision AST analysis and regex entropy detection to identify 15+ vulnerability categories including injections and secrets.</p>
-                    </div>
-                    <div class="enterprise-card p-6 border-l-4 border-l-purple-500">
-                        <h4 class="font-bold mb-2 flex items-center gap-2 text-purple-400">
-                            <i class="fas fa-wand-magic-sparkles text-sm"></i> Patch Agent (Gemini)
-                        </h4>
-                        <p class="text-sm opacity-70">Generates N-candidate secure variants via Gemini 1.5 Flash. Optimizes for logic preservation while replacing unsafe patterns with modern library alternatives.</p>
-                    </div>
-                    <div class="enterprise-card p-6 border-l-4 border-l-green-500">
-                        <h4 class="font-bold mb-2 flex items-center gap-2 text-green-400">
-                            <i class="fas fa-shield-check text-sm"></i> Validator Agent
-                        </h4>
-                        <p class="text-sm opacity-70">Stress-tests every candidate in a hardened Docker Sandbox. Performs recursive security re-scans to ensure fixes don't introduce new risks.</p>
-                    </div>
-                    <div class="enterprise-card p-6 border-l-4 border-l-orange-500">
-                        <h4 class="font-bold mb-2 flex items-center gap-2 text-orange-400">
-                            <i class="fas fa-scale-balanced text-sm"></i> Risk Agent
-                        </h4>
-                        <p class="text-sm opacity-70">Orchestrates the Weighted Scoring Model (0-10) and Adaptive Learning. Adjusts repository weights based on developer feedback patterns.</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- VIEW: POLICIES -->
-            <div id="view-policies" class="view-content hidden">
-                <div class="enterprise-card p-8">
-                    <div class="flex justify-between items-start mb-10">
-                        <div>
-                            <h4 class="text-xl font-bold mb-2">Corporate Security Guardrails</h4>
-                            <p class="text-sm opacity-60">Rules enforced by the PolicyEngine across all agentic decisions.</p>
-                        </div>
-                        <code class="bg-blue-500/10 text-blue-500 px-3 py-1 rounded text-xs font-bold">policy.json active</code>
-                    </div>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-12" id="policy-content">
-                        <!-- Populated by JS -->
-                        <div class="animate-pulse">Loading policy standards...</div>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <script>
-        // SPA Logic
-        function showView(viewId) {
-            document.querySelectorAll('.view-content').forEach(v => v.classList.add('hidden'));
-            document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active'));
-            document.getElementById(`view-${viewId}`).classList.remove('hidden');
-            document.getElementById(`nav-${viewId}`).classList.add('active');
-            const titles = { overview: 'Executive Overview', agents: 'Agent Architecture', policies: 'Security Policies' };
-            document.getElementById('view-title').innerText = titles[viewId];
-            if (viewId === 'policies') loadPolicy();
-        }
-
-        // Theme Toggle
-        const themeToggle = document.getElementById('theme-toggle');
-        const html = document.documentElement;
-        themeToggle.addEventListener('click', () => {
-            const target = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-            html.setAttribute('data-theme', target);
-            localStorage.setItem('theme', target);
-        });
-
-        async function loadPolicy() {
-            try {
-                const res = await fetch('/api/policy');
-                const policy = await res.json();
-                const container = document.getElementById('policy-content');
-                container.innerHTML = `
-                    <div>
-                        <h5 class="text-xs uppercase font-bold tracking-widest mb-4 opacity-40">Forbidden Modules</h5>
-                        <ul class="space-y-2">
-                            ${policy.forbidden_modules.map(m => `<li class="flex items-center gap-3 text-sm font-medium"><i class="fas fa-ban text-red-500/50 text-xs"></i> ${m}</li>`).join('')}
-                        </ul>
-                    </div>
-                    <div>
-                        <h5 class="text-xs uppercase font-bold tracking-widest mb-4 opacity-40">Mandatory Sanitizers</h5>
-                        <ul class="space-y-2">
-                            ${Object.entries(policy.mandatory_sanitizers).map(([k, v]) => `
-                                <li class="text-sm font-medium">
-                                    <span class="text-blue-500 font-mono font-bold">${k}</span>
-                                    <span class="opacity-40 ml-2">requires</span>
-                                    <code class="bg-blue-500/5 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded ml-2 text-xs border border-blue-500/10">${v[0]}</code>
-                                </li>
-                            `).join('')}
-                        </ul>
-                    </div>
-                `;
-            } catch (e) { console.error(e); }
-        }
-
-        async function loadDashboard() {
-            try {
-                const res = await fetch('/api/metrics');
-                const data = await res.json();
-                document.getElementById('stat-prs').innerText = data.total_prs;
-                document.getElementById('stat-vulns').innerText = data.total_vulnerabilities;
-                document.getElementById('total-vulns-center').innerText = data.total_vulnerabilities;
-
-                new Chart(document.getElementById('riskChart'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['High', 'Medium', 'Low'],
-                        datasets: [{
-                            data: [data.risk_levels.HIGH, data.risk_levels.MEDIUM, data.risk_levels.LOW],
-                            backgroundColor: ['#ef4444', '#f59e0b', '#22c55e'],
-                            borderWidth: 0, cutout: '85%', borderRadius: 10, spacing: 5
-                        }]
-                    },
-                    options: { plugins: { legend: { display: false } } }
-                });
-
-                const feed = document.getElementById('agent-feed');
-                if (data.performance.length > 0) {
-                    feed.innerHTML = data.performance.map(p => `
-                        <tr>
-                            <td class="py-3 px-2"><code class="bg-blue-500/10 text-blue-500 px-2 py-1 rounded text-xs">${p.type}</code></td>
-                            <td class="py-3 px-2">
-                                <span class="flex items-center gap-2">
-                                    <span class="w-1.5 h-1.5 ${p.outcome === 'ACCEPTED' ? 'bg-green-500' : 'bg-red-500'} rounded-full"></span>
-                                    ${p.outcome}
-                                </span>
-                            </td>
-                            <td class="py-3 px-2 text-right font-mono font-bold">${p.outcome === 'ACCEPTED' ? '92.1%' : '38.4%'}</td>
-                        </tr>
-                    `).join('');
-                }
-            } catch (e) { console.error(e); }
-        }
-        loadDashboard();
-    </script>
-</body>
-</html>
-"""
-
+@app.route("/api/feedback", methods=["POST"])
 @app.route("/feedback", methods=["POST"])
 def feedback():
-    """Record developer feedback (ACCEPTED/REJECTED)."""
+    """Record developer feedback (ACCEPTED/REJECTED) with optional user attribution."""
     try:
         data = request.json
         vuln_type = data.get("vuln_type")
         outcome = data.get("outcome")
         if not vuln_type or outcome not in ("ACCEPTED", "REJECTED"):
             return jsonify({"error": "Invalid feedback data"}), 400
-        record_feedback(vuln_type, outcome)
+        user_id = data.get("user_id", "")
+        display_name = data.get("display_name", "")
+        # Attribute feedback to the logged-in user when no explicit identity is
+        # sent, so the existing (vuln_type, user_id) upsert dedupes re-votes
+        # instead of accumulating anonymous duplicate rows.
+        if not user_id:
+            u = session.get("user")
+            if u:
+                user_id = u.get("login", "") or ""
+                if not display_name:
+                    display_name = (u.get("name") or u.get("login") or "") or ""
+
+        # Optional scan context so feedback is tied to a repo/PR.
+        repo_id = data.get("repo_id")
+        pr_number = data.get("pr_number")
+        scan_id = data.get("scan_id")
+        for name, val in (("repo_id", repo_id), ("pr_number", pr_number), ("scan_id", scan_id)):
+            if val is not None and not isinstance(val, int):
+                return jsonify({"error": f"{name} must be an integer"}), 400
+            if val is not None and val <= 0:
+                return jsonify({"error": f"{name} must be positive"}), 400
+
+        # Input validation
+        valid_types = {"COMMAND_INJECTION", "CODE_INJECTION", "HARDCODED_SECRET", "SQL_INJECTION", "PATH_TRAVERSAL", "SSRF", "WEAK_CRYPTOGRAPHY", "INSECURE_DESERIALIZATION"}
+        if vuln_type not in valid_types:
+            return jsonify({"error": "Invalid vulnerability type"}), 400
+        if len(user_id) > 100:
+            user_id = user_id[:100]
+        if len(display_name) > 100:
+            display_name = display_name[:100]
+
+        # Rate limiting
+        ip = request.remote_addr or "unknown"
+        if _check_feedback_rate_limit(ip):
+            logger.warning(f"Feedback rate limit exceeded for {ip}", "FEEDBACK")
+            return jsonify({"error": "Too many requests"}), 429
+
+        record_feedback(vuln_type, outcome, user_id=user_id, display_name=display_name,
+                        repo_id=repo_id, pr_number=pr_number, scan_id=scan_id)
         logger.info(f"Feedback recorded: {vuln_type} -> {outcome}", "FEEDBACK")
         return jsonify({"status": "success"})
     except Exception as e:
         logger.error(f"Feedback failure: {e}", "FEEDBACK")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route("/webhook", methods=["POST"])
 def github_webhook():
@@ -570,23 +1567,52 @@ def github_webhook():
         payload = request.data
         
         event = request.headers.get("X-GitHub-Event")
-        data = request.json
-
-        # PHASE 3: AUTOMATED FEEDBACK (REACTIONS)
-        if event == "reaction" and data.get("action") == "created":
-            if data["reaction"]["content"] == "rocket":
-                subject = data.get("subject", {})
-                if data.get("subject_type") == "pull_request_review_comment":
-                    body = subject.get("body", "")
-                    vuln_type = extract_type_from_markdown(body)
-                    if vuln_type:
-                        record_feedback(vuln_type, "ACCEPTED")
-                        logger.info(f"Auto-Feedback: {vuln_type} accepted via 🚀", "FEEDBACK")
-            return jsonify({"status": "feedback_processed"})
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
 
         if not verify_signature(payload, signature):
             logger.error("Invalid webhook signature", "WEBHOOK")
             return jsonify({"error": "Invalid signature"}), 403
+
+        # Webhook deduplication (Phase 3)
+        delivery_id = request.headers.get("X-GitHub-Delivery", "")
+        if delivery_id and _is_delivery_duplicate(delivery_id):
+            logger.info(f"Duplicate webhook delivery {delivery_id} skipped", "WEBHOOK")
+            return jsonify({"status": "duplicate"})
+
+        # INSTALLATION LIFECYCLE — update local repo/installation state
+        if event == "installation":
+            action = data.get("action", "")
+            install_id = data.get("installation", {}).get("id", 0)
+            if action == "deleted":
+                if install_id:
+                    delete_repos_by_install(install_id)
+                logger.info(f"GitHub App uninstalled (install {install_id}) — repos removed", "WEBHOOK")
+            elif action == "created" and install_id:
+                repos = data.get("repositories", [])
+                logger.info(f"GitHub App installed (install {install_id}) — {len(repos)} repos", "WEBHOOK")
+                try:
+                    executor.submit(_provision_codeql_for_repos, repos, install_id)
+                except Exception as e:
+                    logger.error(f"Failed to queue CodeQL provisioning: {e}", "WEBHOOK")
+            _clear_install_cache()
+            return jsonify({"status": "installation_processed"})
+
+        if event == "installation_repositories":
+            for repo in data.get("repositories_removed", []):
+                full_name = repo.get("full_name", "")
+                if full_name:
+                    delete_repo_by_full_name(full_name)
+            install_id = data.get("installation", {}).get("id", 0)
+            added = data.get("repositories_added", [])
+            if install_id and added:
+                try:
+                    executor.submit(_provision_codeql_for_repos, added, install_id)
+                except Exception as e:
+                    logger.error(f"Failed to queue CodeQL provisioning: {e}", "WEBHOOK")
+            _clear_install_cache()
+            return jsonify({"status": "installation_repos_processed"})
 
         if event == "pull_request":
             action = data.get("action")
@@ -594,32 +1620,163 @@ def github_webhook():
             # PHASE 3: AUTOMATED FEEDBACK (MERGES)
             if action == "closed" and data["pull_request"].get("merged"):
                 pr_number = data["pull_request"]["number"]
+                merged_by = data["pull_request"].get("merged_by", {}).get("login", "unknown")
                 findings = get_pr_findings(pr_number)
                 for vuln_type in findings:
-                    record_feedback(vuln_type, "ACCEPTED")
-                    logger.info(f"Auto-Feedback: {vuln_type} accepted via Merge (PR #{pr_number})", "FEEDBACK")
+                    record_feedback(vuln_type, "ACCEPTED", user_id=merged_by, display_name=merged_by)
+                    logger.info(f"Auto-Feedback: {vuln_type} accepted via Merge (PR #{pr_number}) by {merged_by}", "FEEDBACK")
+                resolved = resolve_open_findings_for_pr(pr_number)
+                if resolved:
+                    logger.info(f"Resolved {resolved} open finding(s) for merged PR #{pr_number}", "WEBHOOK")
                 return jsonify({"status": "merge_feedback_processed"})
 
             if action not in ("opened", "synchronize", "reopened"):
                 return jsonify({"status": "ignored"})
 
-            repo_name = data["repository"]["full_name"]
-            pr_number = data["pull_request"]["number"]
-            installation_id = data["installation"]["id"]
-            branch_name = data["pull_request"]["head"]["ref"]
+            repo_name = data.get("repository", {}).get("full_name", "")
+            pr_number = data.get("pull_request", {}).get("number", 0)
+            installation_id = data.get("installation", {}).get("id", 0)
+            branch_name = data.get("pull_request", {}).get("head", {}).get("ref", "")
+            commit_sha = data.get("pull_request", {}).get("head", {}).get("sha", "")
+            pr_title = data.get("pull_request", {}).get("title", "")
 
+            if not repo_name or not pr_number or not installation_id:
+                logger.error(f"Missing required webhook fields: repo={repo_name} pr={pr_number} install={installation_id}", "WEBHOOK")
+                return jsonify({"error": "Missing required fields"}), 400
+
+            # Persist repo info from webhook payload
+            repo_payload = data.get("repository", {})
+            upsert_repo({
+                "id": repo_payload.get("id", 0),
+                "full_name": repo_name,
+                "owner": (repo_payload.get("owner") or {}).get("login", ""),
+                "name": repo_payload.get("name", ""),
+                "description": repo_payload.get("description") or "",
+                "language": repo_payload.get("language") or "",
+                "private": 1 if repo_payload.get("private") else 0,
+                "default_branch": repo_payload.get("default_branch", "main"),
+                "install_id": installation_id,
+            })
+
+            repo_id = repo_payload.get("id", 0)
             logger.info(f"Accepted PR #{pr_number} for background processing", "WEBHOOK")
 
-            # Use Thread Pool for background execution (Fix A)
-            executor.submit(run_async_analysis, repo_name, pr_number, installation_id, branch_name)
+            # Lazy CodeQL provisioning (Phase 4.3 follow-up): repos installed
+            # before the feature existed never received a setup PR. Provision on
+            # the first PR scan instead, once per repo (persisted in DB) per session (in-memory).
+            # Broadened to include synchronize/reopened so any PR action triggers provisioning,
+            # not just "opened".
+            if (
+                action in ("opened", "synchronize", "reopened")
+                and repo_name
+                and getattr(config.app.codeql, "enabled", True)
+                and not is_repo_codeql_provisioned(repo_name)  # DB-persisted guard
+                and _mark_codeql_attempted(repo_name)  # in-memory session dedup
+            ):
+                try:
+                    executor.submit(_provision_codeql_for_repos, [repo_payload], installation_id, False)
+                    logger.info(f"Queued lazy CodeQL provisioning for {repo_name}", "CODEQL")
+                except Exception as e:
+                    logger.error(f"Failed to queue lazy CodeQL provisioning for {repo_name}: {e}", "CODEQL")
+
+            if not _analysis_slot.acquire(blocking=False):
+                logger.warning(f"Analysis capacity reached — rejecting PR #{pr_number}", "WEBHOOK")
+                return jsonify({"error": "Analysis capacity reached, try again shortly"}), 429
+
+            try:
+                executor.submit(_run_analysis_slot, repo_name, repo_id, pr_number, pr_title, installation_id, branch_name, commit_sha)
+            except Exception:
+                _analysis_slot.release()
+                raise
 
             return jsonify({"status": "accepted", "message": "Analysis started in background"}), 202
 
         return jsonify({"status": "ignored"})
     except Exception as error:
         logger.error(f"Webhook reception failed: {error}", "WEBHOOK")
-        return jsonify({"error": str(error)}), 500
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# =========================================================
+# REACT FRONTEND — Serve SPA for all non-API routes
+# =========================================================
+
+
+@app.route("/api/<path:path>")
+def api_not_found(path):
+    """Unknown /api/... paths return JSON 404 instead of the SPA."""
+    return jsonify({"error": f"API endpoint not found: /api/{path}"}), 404
+
+
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Not found"}), 404
+    index_path = _os.path.join(_static_dir, "index.html")
+    if _os.path.exists(index_path):
+        return send_from_directory(_static_dir, "index.html")
+    return jsonify({"error": "Not found"}), 404
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    logger.error(f"Unhandled server error: {e}", "SERVER")
+    return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path):
+    if path and _os.path.exists(_os.path.join(_static_dir, path)):
+        return send_from_directory(_static_dir, path)
+    index_path = _os.path.join(_static_dir, "index.html")
+    if _os.path.exists(index_path):
+        return send_from_directory(_static_dir, "index.html")
+    return jsonify({"error": "Frontend not built. Run: cd frontend && npm run build"}), 404
+
 
 if __name__ == "__main__":
-    init_db()
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    # Docker availability check for sandbox debugging
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            logger.info("Docker: available (sandbox will use containers)", "STARTUP")
+            sandbox_image = config.sandbox.docker.image
+            try:
+                img_result = subprocess.run(
+                    ["docker", "image", "inspect", sandbox_image],
+                    capture_output=True,
+                    timeout=5,
+                )
+                if img_result.returncode != 0:
+                    logger.warning(
+                        f"Docker: daemon up but sandbox image '{sandbox_image}' not found — "
+                        "will attempt provisioning (pull/build) on first scan",
+                        "STARTUP",
+                    )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                logger.warning(
+                    "Docker: could not verify sandbox image presence", "STARTUP"
+                )
+            except Exception as e:
+                logger.warning(f"Docker: image check failed - {e}", "STARTUP")
+        else:
+            logger.warning("Docker: installed but not running (sandbox will use local fallback)", "STARTUP")
+    except FileNotFoundError:
+        logger.warning("Docker: not installed (sandbox will use local fallback)", "STARTUP")
+    except subprocess.TimeoutExpired:
+        logger.warning("Docker: detected but unresponsive (sandbox will use local fallback)", "STARTUP")
+    except Exception as e:
+        logger.warning(f"Docker: check failed - {e} (sandbox will use local fallback)", "STARTUP")
+
+    sc = config.app.server
+    port = int(os.environ.get("PORT", sc.port))
+    print(f"\n  AI Risk Guard running at http://{sc.host}:{port}")
+    print(f"  Dashboard:              http://{sc.host}:{port}/dashboard\n")
+    from waitress import serve
+    serve(app, host=sc.host, port=port, threads=sc.workers)
+

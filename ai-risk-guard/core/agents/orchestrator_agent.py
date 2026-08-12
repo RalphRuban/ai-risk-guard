@@ -3,10 +3,15 @@ Orchestration Agent.
 The 'Executive' agent that takes real-world actions (GitHub Decisions) based on risk analysis.
 """
 
-from typing import Dict, Any, List
-import requests
+from typing import Any
+
 from core.agents.base_agent import BaseAgent
-from utils.logger import logger
+from core.config import config
+from services.github.reporter import (
+    generate_sarif,
+    set_pr_labels,
+)
+
 
 class OrchestrationAgent(BaseAgent):
     """
@@ -16,67 +21,82 @@ class OrchestrationAgent(BaseAgent):
     def __init__(self):
         super().__init__("Orchestrator")
 
-    def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         results = context.get("results", [])
         if not results:
             return context
 
-        # 1. Calculate the 'Worst' Risk Score
-        max_risk = max(r.get("risk", 0) for r in results)
+        # 1. Calculate the 'Worst' Risk Score for NEW vulnerabilities only (Hybrid Gating).
+        # Silent (informational) findings never gate the PR decision.
+        new_results = [r for r in results if r.get("vulnerability", {}).get("is_new", False)]
+        actionable = [r for r in new_results if not r.get("is_silent")]
+        max_risk = max((r.get("risk", 0) for r in actionable), default=0.0)
+        silent_count = len(new_results) - len(actionable)
+        if silent_count:
+            self.log(f"Ignoring {silent_count} silent finding(s) for decision gating")
         repo_name = context.get("pr_context", {}).get("repo_name")
         pr_number = context.get("pr_context", {}).get("pr_number")
         token = context.get("pr_context", {}).get("access_token")
+        commit_sha = context.get("pr_context", {}).get("commit_sha")
 
         if not all([repo_name, pr_number, token]):
             self.log("Insufficient PR context for autonomous action", "warning")
             return context
 
+        if not commit_sha:
+            self.log("commit_sha is missing from PR context — SARIF upload will be skipped", "warning")
+
         self.log(f"Making executive decision for PR #{pr_number} (Max Risk: {max_risk})")
 
-        # 2. Executive Logic
+        # 2. Executive Logic - read thresholds from config
+        max_allowed_risk = config.risk.gating.max_allowed_risk
+        human_review_above = config.risk.gating.auto_request_changes_above
+        
         decision = "COMMENT"
-        if max_risk >= 8.0:
+        if max_risk >= max_allowed_risk:
             decision = "REQUEST_CHANGES"
             self.log(f"CRITICAL RISK: Requesting changes on PR #{pr_number}", "error")
-            self._take_github_action(repo_name, pr_number, token, "REQUEST_CHANGES", 
-                                   "🚨 CRITICAL SECURITY RISK: This PR contains high-risk vulnerabilities and violates security policy. Merging is blocked.")
-        elif max_risk >= 4.0:
+        elif max_risk >= human_review_above:
             decision = "REQUEST_CHANGES"
             self.log(f"MODERATE RISK: Requesting changes on PR #{pr_number}")
-            self._take_github_action(repo_name, pr_number, token, "REQUEST_CHANGES", 
-                                   "⚠️ SECURITY CONCERNS: Vulnerabilities detected. Please review the AI-suggested patches before merging.")
         else:
-            self.log(f"LOW RISK: Standard comment posted.")
+            self.log("LOW RISK: Standard comment posted.")
 
         context["executive_decision"] = decision
+        
+        # 3. Set PR labels based on max risk
+        set_pr_labels(repo_name, pr_number, token, max_risk)
+
+        # 5. Generate and attach SARIF if we have results
+        if results and repo_name and pr_number and token:
+            try:
+                self._attach_sarif_to_pr(results, repo_name, pr_number, token, context)
+            except Exception as e:
+                self.log(f"Failed to attach SARIF to PR: {e}", "warning")
+        
         return context
 
-    def _take_github_action(self, repo, pr, token, action_type, message):
-        """Perform actions via GitHub Reviews API."""
-        try:
-            url = f"https://api.github.com/repos/{repo}/pulls/{pr}/reviews"
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json"
-            }
-            
-            # Map system actions to GitHub actions
-            event_map = {
-                "REQUEST_CHANGES": "REQUEST_CHANGES",
-                "COMMENT": "COMMENT",
-                "APPROVE": "APPROVE"
-            }
+    def _attach_sarif_to_pr(self, results, repo_name, pr_number, token, context):
+        """Generate SARIF output and store in context (upload happens in app.py)."""
+        should_upload = getattr(config.app.sarif, "upload_to_code_scanning", True)
+        if not should_upload:
+            self.log("SARIF upload disabled via configuration")
+            return
 
-            payload = {
-                "body": message,
-                "event": event_map.get(action_type, "COMMENT")
-            }
+        file_path = context.get("file_path", "unknown")
+        commit_sha = context.get("pr_context", {}).get("commit_sha")
+        scan_duration = context.get("scan_duration", 0.0)
+        sarif_output = generate_sarif(results, file_path, commit_sha=commit_sha, scan_duration=scan_duration)
+        
+        if sarif_output and commit_sha:
+            context["sarif_output"] = sarif_output
+            context["sarif_commit_sha"] = commit_sha
+            self.log("SARIF generated (upload will run in parallel with PR comment)", "GITHUB")
+        else:
+            self.log(
+                f"SARIF generation skipped: sarif_output={'yes' if sarif_output else 'no'}, "
+                f"commit_sha={'yes' if commit_sha else 'None'}",
+                "warning",
+            )
 
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
-            if response.status_code in (200, 201):
-                self.log(f"GitHub Action successful: {action_type}")
-            else:
-                self.log(f"GitHub Action failed: {response.text}", "error")
 
-        except Exception as e:
-            self.log(f"Failed to communicate with GitHub: {e}", "error")

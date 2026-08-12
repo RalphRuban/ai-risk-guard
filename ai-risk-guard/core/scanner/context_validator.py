@@ -9,7 +9,6 @@ import re
 
 from utils.logger import logger
 
-
 PLACEHOLDER_PATTERNS = [
     r"\bchangeme\b",
     r"\bexample\b",
@@ -54,9 +53,7 @@ class ContextValidator:
         stripped = line.strip()
 
         return (
-            stripped.startswith("#")
-            or
-            stripped.startswith("//")
+            stripped.startswith(("#", "//"))
         )
 
     def is_placeholder(self, value):
@@ -80,6 +77,16 @@ class ContextValidator:
     
         return False
 
+    def is_env_var_source(self, line):
+        return any(
+            pattern in line
+            for pattern in [
+                "os.getenv(",
+                "os.environ.get(",
+                "os.environ[",
+            ]
+        )
+
     def should_ignore_secret(
         self,
         file_path,
@@ -98,6 +105,10 @@ class ContextValidator:
 
             if self.is_placeholder(line):
                 logger.debug(f"Ignoring placeholder: {line.strip()}", "CONTEXT")
+                return True
+
+            if self.is_env_var_source(line):
+                logger.debug(f"Ignoring env var assignment: {line.strip()}", "CONTEXT")
                 return True
 
             return False

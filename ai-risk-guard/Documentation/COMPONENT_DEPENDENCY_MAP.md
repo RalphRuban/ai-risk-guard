@@ -7,19 +7,23 @@
 │                         Entry Points                                    │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  app/main.py (CLI)              app/app.py (Webhook Server)            │
+│  app/main.py (CLI)              app/app.py (Webhook + OAuth + SPA)     │
 │  ↓                               ↓                                       │
 │  ┌─────────────────────┐       ┌──────────────────────────────┐         │
-│  │ AIRiskGuard()       │       │ Flask App                    │         │
-│  │  initialize:        │       │  - verify_signature()        │         │
-│  │  ├─ scanner         │       │  - github_webhook()          │         │
-│  │  ├─ validator       │       │  - health()                  │         │
-│  │  ├─ rescanner       │       │                              │         │
-│  │  └─ sandbox         │       │ Dependencies:                │         │
-│  └─────────────────────┘       │  ├─ services/github/auth.py │         │
-│                                 │  ├─ main.AIRiskGuard        │         │
-│  Exported methods:              │  └─ services/github/reporter│         │
-│  └─ analyze_file()              └──────────────────────────────┘         │
+│  │ AIRiskGuard()       │       │ Flask App (waitress :8000)   │         │
+│  │  → ManagerAgent     │       │  - verify_signature()        │         │
+│  └─────────────────────┘       │  - github_webhook()          │         │
+│                                │  - OAuth login/callback      │         │
+│                                │  - /api/* REST routes        │         │
+│                                │  - SPA serving               │         │
+│                                │ Dependencies:                │         │
+│                                │  ├─ core/config (registry)   │         │
+│                                │  ├─ core/models (Pydantic)   │         │
+│                                │  ├─ app/main (AIRiskGuard)   │         │
+│                                │  ├─ services/github/{auth,reporter}│   │
+│                                │  ├─ utils/{db,logger,retry}  │         │
+│                                │  └─ app/metrics (Prometheus) │         │
+│                                └──────────────────────────────┘         │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
                                   │
@@ -29,61 +33,70 @@
     │ SCANNING PHASE           │    │ GITHUB SERVICES        │
     │ core/scanner/            │    │ services/github/       │
     └──────────────────────────┘    └────────────────────────┘
-                    │
-        ┌───────────┼───────────┐
-        ▼           ▼           ▼
-    ┌─────────┐ ┌────────┐ ┌─────────────┐
-    │   AST   │ │ Regex  │ │ Diff        │
-    │ Scanner │ │Scanner │ │ Engine      │
-    └─────────┘ └────────┘ └─────────────┘
+                    │                     │
+        ┌───────────┼───────────┐        ├─ auth.py
+        ▼           ▼           ▼        ├─ reporter.py
+    ┌─────────┐ ┌────────┐ ┌─────────┐   └─ (SARIF upload)
+    │   AST   │ │ Regex  │ │ Diff    │
+    │ Scanner │ │Scanner │ │ Engine  │
+    └─────────┘ └────────┘ └─────────┘
         │           │           │
         └───────────┼───────────┘
                     ▼
         ┌───────────────────────┐
-        │ Context Validator     │ ◄─── Entropy Detector
+        │ Context Validator     │
         │ (reduces false+)      │
         └───────────────────────┘
+                    │
                     ▼
     ┌──────────────────────────────────┐
-    │ [Vulnerability Objects] → List   │
+    │ [Vulnerability] → List (Pydantic)│
     └──────────────────────────────────┘
                     │
                     ▼
     ┌──────────────────────────────────┐
     │ PATCHING PHASE                   │
     │ core/patch/patch_orchestrator    │
-    │  ├─ ConflictAnalyzer             │
     │  └─ fixers.apply_patch_to_content│
+    │     (line-descending, conflicts) │
+    │  + core/patch/llm_patcher        │
+    │    (Gemini fallback chain)       │
     └──────────────────────────────────┘
+                    │
                     ▼
     ┌──────────────────────────────────┐
     │ VALIDATION PHASE                 │
     │ core/validator/                  │
     │ ├─ PatchValidator                │
-    │ ├─ Sandbox                       │
-    │ └─ SecurityRescanner             │
-    │    (re-scan for vulns)           │
+    │ ├─ Sandbox (Docker/local)        │
+    │ ├─ SecurityRescanner             │
+    │ └─ test_rebind (pytest rebind)   │
     └──────────────────────────────────┘
+                    │
                     ▼
     ┌──────────────────────────────────┐
     │ ANALYSIS PHASE                   │
     ├──────────────────────────────────┤
-    │ Risk Scoring:                    │
-    │ ├─ calculate_risk()              │
-    │ ├─ ContextRiskEngine             │
-    │ └─ extract_metrics()             │
-    │                                  │
+    │ Risk Scoring (8 factors):        │
+    │ ├─ risk_engine.compute_risk()    │
+    │ ├─ context_engine                │
+    │ └─ metrics_extractor             │
+    │ Quality Scoring (6 factors):     │
+    │ └─ quality/patch_scorer          │
     │ Confidence Scoring:              │
-    │ ├─ calculate_confidence()        │
-    │ └─ ConfidenceLearningEngine      │
+    │ ├─ confidence.calculate          │
+    │ └─ learning_engine               │
     └──────────────────────────────────┘
+                    │
                     ▼
     ┌──────────────────────────────────┐
-    │ REPORTING PHASE                  │
+    │ REPORTING / ACTION PHASE         │
     │ services/github/reporter.py      │
     │ ├─ format_report()               │
-    │ ├─ SecurityExplainer             │
-    │ └─ post_pr_comment()             │
+    │ ├─ post_pr_comment()             │
+    │ ├─ set_pr_labels()               │
+    │ ├─ generate_sarif()              │
+    │ └─ upload_sarif_to_code_scanning │
     └──────────────────────────────────┘
 ```
 
@@ -91,61 +104,99 @@
 
 ## Detailed Dependency Table
 
+### Entry Points
+| Module | Imports From | Exported To | Status |
+|--------|---|---|---|
+| `app/app.py` | core/config, core/models, app/main, services/github (auth, reporter), utils (db, logger, retry), app/metrics | — (server) | ✅ Active |
+| `app/main.py` | core/agents/manager_agent, core/scanner, core/patch, core/validator, core/risk, core/confidence, services/github/reporter | app/app.py, tests | ✅ Active |
+| `app/metrics.py` | prometheus_client | app/app.py | ✅ Active |
+
+### Core Config & Models
+| Module | Imports From | Exported To | Status |
+|--------|---|---|---|
+| `core/config/*` | pydantic v2, PyYAML | all core agents, app, tests | ✅ Active |
+| `core/models/*` | pydantic v2 | scanner, patch, risk, reporter, tests | ✅ Active |
+| `core/metadata/vuln_metadata.py` | (dict constants) | scanner, reporter, fixers, tests | ✅ Active |
+| `core/metadata/versions.py` | (constants) | reporter, tests | ✅ Active |
+
 ### Scanner Layer
 | Module | Imports From | Exported To | Status |
 |--------|---|---|---|
-| `vulnerability_scanner.py` | logger, vuln_metadata, ContextValidator, DiffAwareScanner, ASTScanner, RegexScanner | main.AIRiskGuard, test_core.py | ✅ Active |
-| `ast_scanner.py` | logger, vuln_metadata | vulnerability_scanner.py | ✅ Active |
-| `regex_scanner.py` | vuln_metadata, EntropyDetector, ContextValidator | vulnerability_scanner.py | ✅ Active |
-| `diff_engine.py` | logger | vulnerability_scanner.py, app.py | ✅ Active |
-| `context_validator.py` | logger | vulnerability_scanner.py, regex_scanner.py, test_core.py | ✅ Active |
-| `entropy_detector.py` | (std lib only) | regex_scanner.py | ✅ Active |
+| `vulnerability_scanner.py` | ast, re, logger, vuln_metadata, context_validator, diff_engine | scanner_agent, tests | ✅ Active |
+| `diff_engine.py` | re, logger | vulnerability_scanner, tests | ✅ Active |
+| `context_validator.py` | re, logger | vulnerability_scanner, tests | ✅ Active |
+| `test_file_fetcher.py` | requests/httpx, cache | scanner_agent, validator, tests | ✅ Active |
 
 ### Patch Layer
 | Module | Imports From | Exported To | Status |
 |--------|---|---|---|
-| `patch_orchestrator.py` | difflib, ConflictAnalyzer | main.AIRiskGuard | ✅ Active |
-| `fixers.py` | ast, difflib, logger | main.AIRiskGuard, test_core.py | ✅ Active |
-| `ast_patch_engine.py` | ast, difflib | ❌ NOT IMPORTED | ⚠️ Dead |
-| `conflict_analyzer.py` | (std lib only) | patch_orchestrator.py | ✅ Active |
-| `patch_generator.py` | Sandbox | ❌ NOT IMPORTED | ⚠️ Dead |
-| `dependency_graph.py` | defaultdict | ❌ NOT IMPORTED | ⚠️ Dead |
-| `transformers.py` | ast | ❌ NOT IMPORTED | ⚠️ Dead |
+| `patch_orchestrator.py` | ast, difflib, logger | patch_agent, tests | ✅ Active |
+| `fixers.py` | ast, difflib, logger, vuln_metadata | patch_agent, patch_orchestrator, tests | ✅ Active |
+| `llm_patcher.py` | google-genai, core/llm, core/cache, logger | patch_agent, tests | ✅ Active |
 
 ### Validator Layer
 | Module | Imports From | Exported To | Status |
 |--------|---|---|---|
-| `patch_validator.py` | ast, re | main.AIRiskGuard | ✅ Active |
-| `sandbox.py` | subprocess, tempfile, logger | main.AIRiskGuard, patch_generator.py | ✅ Active |
-| `security_rescan.py` | vulnerability_scanner (❌ BUG), tempfile, os | main.AIRiskGuard | 🔴 Broken |
+| `patch_validator.py` | ast, re, logger | validator_agent, tests | ✅ Active |
+| `sandbox.py` | subprocess, tempfile, os, docker, logger, sandbox_config | validator_agent, tests | ✅ Active |
+| `security_rescan.py` | vulnerability_scanner, tempfile, os | validator_agent, tests | ✅ Active |
+| `test_rebind.py` | re, ast | validator_agent, sandbox, tests | ✅ Active |
 
-### Risk/Confidence Layer
+### Policy Layer
 | Module | Imports From | Exported To | Status |
 |--------|---|---|---|
-| `risk_engine.py` | logger, ContextRiskEngine | main.AIRiskGuard, test_core.py | ✅ Active |
-| `context_engine.py` | (empty) | risk_engine.py | ✅ Active |
-| `metrics_extractor.py` | ast, logger | main.AIRiskGuard, test_core.py | ✅ Active |
-| `confidence.py` | ConfidenceLearningEngine | main.AIRiskGuard, test_core.py | ✅ Active |
-| `learning_engine.py` | defaultdict | confidence.py | ✅ Active |
+| `policy_engine.py` | core/config (policy), ast | risk_agent, validator_agent, tests | ✅ Active |
 
-### Reporting Layer
+### Risk / Quality / Confidence Layer
 | Module | Imports From | Exported To | Status |
 |--------|---|---|---|
-| `explainer.py` | (dict constants only) | reporter.py | ✅ Active |
-| `reporter.py` | requests, logger, SecurityExplainer, VULN_METADATA | main.AIRiskGuard, app.py | ✅ Active |
-| `pr_fetcher.py` | requests, logger | ❌ NOT IMPORTED | ⚠️ Dead |
+| `risk/risk_engine.py` | logger, core/config (risk), context_engine, metrics_extractor | risk_agent, tests | ✅ Active |
+| `risk/context_engine.py` | core/config | risk_engine | ✅ Active |
+| `risk/metrics_extractor.py` | ast, logger | risk_engine, tests | ✅ Active |
+| `quality/patch_scorer.py` | core/config (quality) | risk_agent, tests | ✅ Active |
+| `confidence/confidence.py` | core/config, learning_engine | risk_agent, tests | ✅ Active |
+| `confidence/learning_engine.py` | utils/db, datetime | confidence | ✅ Active |
 
-### Authentication
+### Agents
 | Module | Imports From | Exported To | Status |
 |--------|---|---|---|
-| `auth.py` | time, jwt, requests, logger | app.py | ✅ Active |
+| `base_agent.py` | utils/logger, app/metrics | all agents | ✅ Active |
+| `manager_agent.py` | scanner_agent, patch_agent, validator_agent, risk_agent | app/main, app/app | ✅ Active |
+| `scanner_agent.py` | vulnerability_scanner, diff_engine, cache, test_file_fetcher, utils | manager_agent | ✅ Active |
+| `patch_agent.py` | fixers, llm_patcher, patch_orchestrator, policy, cache | manager_agent | ✅ Active |
+| `validator_agent.py` | patch_validator, sandbox, security_rescan, test_rebind, policy | manager_agent | ✅ Active |
+| `risk_agent.py` | policy_engine, patch_scorer, risk_engine, confidence, quality | manager_agent | ✅ Active |
+| `orchestrator_agent.py` | services/github/reporter (sarif, labels), core/config | manager_agent | ✅ Active |
+
+### SARIF / Reporting
+| Module | Imports From | Exported To | Status |
+|--------|---|---|---|
+| `core/sarif/converter.py` | core/models | sarif_generator, tests | ✅ Active |
+| `core/sarif/sarif_generator.py` | converter, metadata | reporter, orchestrator, tests | ✅ Active |
+| `core/sarif/sarif_writer.py` | json, logger | reporter | ✅ Active |
+| `core/reporting/explainer.py` | (dict constants) | reporter | ✅ Active |
+
+### GitHub Services
+| Module | Imports From | Exported To | Status |
+|--------|---|---|---|
+| `auth.py` | jwt (PyJWT), time, requests, logger | app/app.py, reporter.py | ✅ Active |
+| `reporter.py` | requests, logger, auth, core/sarif, metadata | app/app.py, orchestrator_agent | ✅ Active |
+
+### Cache Layer (SQLite-backed)
+| Module | Imports From | Exported To | Status |
+|--------|---|---|---|
+| `scan_cache.py` | utils/db, hashlib | scanner_agent, tests | ✅ Active |
+| `gemini_cache.py` | utils/db, hashlib | llm_patcher, tests | ✅ Active |
+| `test_file_cache.py` | utils/db, datetime | test_file_fetcher, tests | ✅ Active |
+| `ast_cache.py` | utils/db, RestrictedUnpickler | scanner, tests | ✅ Active |
+| `sandbox_cache.py` | (in-proc dict) | sandbox, validator_agent | ✅ Active |
 
 ### Utilities
 | Module | Imports From | Exported To | Status |
 |--------|---|---|---|
-| `logger.py` | json, logging, sys, datetime | All modules | ✅ Active |
-| `db.py` | sqlite3, os, pathlib | ❌ NOT IMPORTED | ⚠️ Unused in runtime |
-| `vuln_metadata.py` | (dict only) | scanner, reporter, fixers | ✅ Active |
+| `utils/logger.py` | json, logging, sys, datetime | All modules | ✅ Active |
+| `utils/db.py` | sqlite3, os, pathlib | app, agents, confidence, caches | ✅ Active |
+| `utils/retry.py` | functools, time | reporter, llm_patcher | ✅ Active |
 
 ---
 
@@ -153,47 +204,36 @@
 
 ```
 Tier 1 (Core):
-  ✓ logger.py → All modules (ubiquitous)
-  ✓ vuln_metadata.py → scanner, fixers, reporter
+  ✓ core/config → All agents + app (configuration is centralized)
+  ✓ core/models → scanner, patch, risk, reporter (typed data flow)
+  ✓ utils/logger.py → All modules (ubiquitous)
 
 Tier 2 (Main flow):
-  ✓ vulnerability_scanner.py → main.AIRiskGuard
-  ✓ patch_orchestrator.py → main.AIRiskGuard
-  ✓ patch_validator.py → main.AIRiskGuard
-  ✓ risk_engine.py → main.AIRiskGuard
-  ✓ reporter.py → app.py & main.AIRiskGuard
+  ✓ vulnerability_scanner.py → scanner_agent → manager_agent
+  ✓ fixers.py + llm_patcher.py → patch_agent → manager_agent
+  ✓ sandbox.py + patch_validator.py → validator_agent → manager_agent
+  ✓ risk_engine.py + patch_scorer.py → risk_agent → manager_agent
+  ✓ reporter.py → orchestrator_agent + app.py
 
 Tier 3 (Sub-dependencies):
-  ✓ ContextValidator → vulnerability_scanner, regex_scanner
+  ✓ ContextValidator → vulnerability_scanner
   ✓ DiffAwareScanner → vulnerability_scanner
-  ✓ Sandbox → patch_validator (indirectly)
-  ✓ ContextRiskEngine → risk_engine
+  ✓ SecurityRescanner → validator_agent
+  ✓ policy_engine → risk_agent + validator_agent
+  ✓ core/sarif → reporter + orchestrator_agent
 ```
 
 ---
 
 ## Circular Dependencies
 
-✅ **None detected** - Graph is acyclic (DAG)
+✅ **None detected** — Graph is acyclic (DAG). `utils/logger` is a leaf-level dependency used ubiquitously but never imports upward.
 
 ---
 
-## Unused/Dead Imports in Active Modules
+## Unused/Dead Imports
 
-### `security_rescan.py` (🔴 CRITICAL)
-```python
-from core.scanner.vulnerability_scanner import scanner  # Line 6
-scanner.scan_file(path)  # Line 7 - UNDEFINED, scanner is MODULE not INSTANCE
-```
-**Impact**: Module crashes when `SecurityRescanner.rescan_code()` is called
-**Fix**: Should be:
-```python
-from core.scanner.vulnerability_scanner import VulnerabilityScanner
-scanner = VulnerabilityScanner()
-```
-
-### Other Unused Imports
-- None critical in active modules
+- ✅ **None**. Removed: `ast_scanner.py`, `regex_scanner.py`, `entropy_detector.py`, `conflict_analyzer.py`, `patch_generator.py`, `dependency_graph.py`, `services/github/pr_fetcher.py`. All current modules are imported by the pipeline.
 
 ---
 
@@ -201,38 +241,28 @@ scanner = VulnerabilityScanner()
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ PRIMARY PATTERN: Dependency Injection            │
+│ PRIMARY: ManagerAgent pipeline (fresh per file)  │
 ├─────────────────────────────────────────────────┤
-│ main.AIRiskGuard.__init__():                     │
-│   self.scanner = VulnerabilityScanner()          │
-│   self.validator = PatchValidator()              │
-│   self.rescanner = SecurityRescanner()           │
-│   self.sandbox = Sandbox()                       │
+│ ManagerAgent.process_file():                     │
+│   ctx = {file_path, pr_context, diff_data, ...}  │
+│   ScannerAgent().execute(ctx)                    │
+│   PatchAgent().execute(ctx)                      │
+│   ValidatorAgent().execute(ctx)                  │
+│   RiskAgent().execute(ctx)                       │
+│   OrchestrationAgent().execute(ctx)              │
 │                                                  │
-│ main.AIRiskGuard.analyze_file():                 │
-│   self.scanner.scan_file()                       │
-│   apply_patches_safely(vuln_list)               │
-│   self.validator.validate_all()                  │
-│   self.sandbox.run()                            │
-│   self.rescanner.rescan_code()                  │
+│ Data flows through a shared context dict;        │
+│ Pydantic models type the core objects.           │
 └─────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────┐
-│ SECONDARY: Functional API (no classes)           │
+│ SECONDARY: Functional APIs                      │
 ├─────────────────────────────────────────────────┤
-│ risk_engine:                                     │
-│   calculate_risk(vuln, pr, confidence, ...)     │
-│   explain_risk(vuln, pr, confidence, ...)       │
-│                                                  │
-│ confidence:                                      │
-│   calculate_confidence(vuln, patch, ...)        │
-│                                                  │
-│ metrics_extractor:                              │
-│   extract_metrics(file_path) → dict             │
-│                                                  │
-│ reporter:                                        │
-│   format_report(results) → markdown             │
-│   post_pr_comment(repo, pr, results, token)     │
+│ risk_engine.compute_risk(...) / explain_risk(..) │
+│ confidence.calculate_confidence(...)            │
+│ quality/patch_scorer.score(...)                 │
+│ metrics_extractor.extract_metrics(...)          │
+│ reporter.format_report(...) / post_pr_comment() │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -241,91 +271,41 @@ scanner = VulnerabilityScanner()
 ## Data Flow Through Pipeline
 
 ```
-INPUT: File path (string)
+INPUT: File content + diff_data
   │
   ▼
-VulnerabilityScanner.scan_file(file_path)
-  │ Reads file
-  │ Parses AST
-  │ Applies scanners
+VulnerabilityScanner.scan_file(...)
+  │ AST parse → node visitor → 10 patterns
+  │ regex secrets → diff-aware is_new → context validation
   ▼
-OUTPUT: vulnerabilities: List[Dict]
-  [{
-    "type": "COMMAND_INJECTION",
-    "file": "app.py",
-    "line": 42,
-    ...
-  }, ...]
+OUTPUT: List[Vulnerability] (Pydantic)
   │
   ▼
-apply_patches_safely(code, vulnerabilities, patch_fn)
-  │ Sorts by line (reverse)
-  │ Checks conflicts
-  │ Applies AST transforms
+PatchAgent → fixers.apply_patch_to_content (baseline_ast)
+  │ + llm_patcher.generate (Gemini variants)
+  │ apply_patches_safely (line-descending, conflict-safe)
   ▼
-OUTPUT: patch_result: Dict
-  {
-    "final_code": "patched Python source",
-    "combined_diff": "unified diff",
-    "applied": [...],
-    "errors": [...]
-  }
+OUTPUT: patch candidates
   │
-  ├──▶ PatchValidator.validate_all(patched_code)
-  │    ▼ OUTPUT: validation: Dict
-  │
-  ├──▶ Sandbox.run(patched_code)
-  │    ▼ OUTPUT: sandbox: Dict
-  │
-  └──▶ SecurityRescanner.rescan_code(patched_code)
-       ▼ OUTPUT: rescan: Dict
-  │
+  ├──▶ PatchValidator.validate (syntax/imports/policy/ssrf)
+  ├──▶ Sandbox.run (docker/local, limits, cache)
+  ├──▶ test_rebind + pytest execution
+  └──▶ SecurityRescanner.rescan_code
   ▼
-For each vulnerability:
-  │
-  ├──▶ calculate_confidence(vuln, patch, validation)
-  │    ▼ confidence: float [0.0-1.0]
-  │
-  ├──▶ calculate_risk(vuln, pr, confidence, validation, metrics)
-  │    ▼ risk: float [0.0-10.0]
-  │
-  └──▶ explain_risk(...)
-       ▼ risk_breakdown: Dict
-  │
+For each candidate:
+  ├──▶ quality/patch_scorer.score → quality (0-1)
+  ├──▶ confidence.calculate_confidence + learning_engine
+  ├──▶ risk_engine.compute_risk + explain_risk
+  └──▶ Candidate ranking → winner
   ▼
-Assemble result for this vulnerability
-  result: {
-    "vulnerability": Dict,
-    "patch": str,
-    "diff": str,
-    "validation": Dict,
-    "sandbox": Dict,
-    "rescan": Dict,
-    "confidence": float,
-    "risk": float,
-    "risk_breakdown": Dict
-  }
-  │
+OrchestrationAgent:
+  ├──▶ Gating decision (COMMENT / REQUEST_CHANGES)
+  ├──▶ set_pr_labels (security-risk-N)
+  └──▶ generate_sarif + upload to Code Scanning
   ▼
-OUTPUT: List[result]
-  │
-  ▼
-format_report(results) → markdown string
-  │
-  ▼
-post_pr_comment(repo, pr, results, token) → HTTP POST to GitHub
+reporter.format_report → PR comment
+utils/db persistence + app/metrics update
 ```
-
----
-
-## Import Count by Module
-
-| Module | External Imports | Internal Imports | Total |
-|--------|---|---|---|
-| app.py | 13 (os, hmac, hashlib, tempfile, subprocess, flask, dotenv, ...) | 5 (main, auth, reporter, diff_engine) | 18 |
-| main.py | 0 | 10 (logger, scanner, patch_orch, fixers, validator, rescanner, sandbox, confidence, risk, reporter) | 10 |
-| vulnerability_scanner.py | 4 (ast, os, re, logger) | 4 (vuln_metadata, ContextValidator, DiffAwareScanner, ...) | 8 |
-| **Average** | ~2-3 | ~2-3 | ~5 |
 
 ---
 
@@ -334,9 +314,8 @@ post_pr_comment(repo, pr, results, token) → HTTP POST to GitHub
 | Metric | Value | Assessment |
 |--------|---|---|
 | Circular dependencies | 0 | ✅ Excellent |
-| Dead modules | 4 | ⚠️ Moderate (8% of code) |
-| Broken imports | 1 🔴 | ⚠️ Critical |
-| Max depth (import chain) | ~6 layers | ✅ Reasonable |
+| Dead modules | 0 | ✅ Excellent |
+| Broken imports | 0 | ✅ Excellent |
+| Max depth (import chain) | ~5 layers | ✅ Reasonable |
 | Cohesion | High | ✅ Clear layers |
-| Coupling | Low | ✅ Decoupled |
-
+| Coupling | Low | ✅ Decoupled (agents, config, models) |

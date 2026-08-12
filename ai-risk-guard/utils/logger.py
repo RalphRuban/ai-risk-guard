@@ -9,7 +9,7 @@ Structured logger using Python's built-in logging module.
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -23,12 +23,22 @@ class _JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         module  = getattr(record, "app_module", "GENERAL")
-        return json.dumps({
-            "time":    datetime.now(timezone.utc).isoformat(),
+        trace_id = getattr(record, "trace_id", None)
+        
+        log_entry = {
+            "time":    datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level":   record.levelname,
             "module":  module,
             "message": record.getMessage(),
-        })
+        }
+        
+        if trace_id:
+            log_entry["trace_id"] = trace_id
+
+        if record.exc_info and record.exc_info[0] is not None:
+            log_entry["exception"] = self.formatException(record.exc_info)
+            
+        return json.dumps(log_entry)
 
 
 def _build_logger() -> logging.Logger:
@@ -68,21 +78,23 @@ class Logger:
     Thin wrapper that preserves the original logger.info(msg, module) API.
     """
 
-    def _emit(self, level: int, message: str, module: str):
+    def _emit(self, level: int, message: str, module: str, trace_id: str | None = None, exc_info: bool = False):
         extra = {"app_module": module}
-        _log.log(level, message, extra=extra)
+        if trace_id:
+            extra["trace_id"] = trace_id
+        _log.log(level, message, extra=extra, exc_info=exc_info)
 
-    def info(self, message: str, module: str = "GENERAL"):
-        self._emit(logging.INFO, message, module)
+    def info(self, message: str, module: str = "GENERAL", trace_id: str | None = None, exc_info: bool = False):
+        self._emit(logging.INFO, message, module, trace_id, exc_info=exc_info)
 
-    def error(self, message: str, module: str = "GENERAL"):
-        self._emit(logging.ERROR, message, module)
+    def error(self, message: str, module: str = "GENERAL", trace_id: str | None = None, exc_info: bool = False):
+        self._emit(logging.ERROR, message, module, trace_id, exc_info=exc_info)
 
-    def warning(self, message: str, module: str = "GENERAL"):
-        self._emit(logging.WARNING, message, module)
+    def warning(self, message: str, module: str = "GENERAL", trace_id: str | None = None, exc_info: bool = False):
+        self._emit(logging.WARNING, message, module, trace_id, exc_info=exc_info)
 
-    def debug(self, message: str, module: str = "GENERAL"):
-        self._emit(logging.DEBUG, message, module)
+    def debug(self, message: str, module: str = "GENERAL", trace_id: str | None = None, exc_info: bool = False):
+        self._emit(logging.DEBUG, message, module, trace_id, exc_info=exc_info)
 
 
 logger = Logger()

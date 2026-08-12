@@ -1,77 +1,18 @@
-"""
-Security explainability engine.
-Generates human-readable remediation reasoning.
-"""
-
-EXPLANATIONS = {
-
-    "COMMAND_INJECTION":
-        "User-controlled input may execute arbitrary system commands.",
-
-    "CODE_INJECTION":
-        "Dynamic code execution may allow arbitrary Python execution.",
-
-    "HARDCODED_SECRET":
-        "Hardcoded credentials may expose sensitive infrastructure access.",
-
-    "INSECURE_DESERIALIZATION":
-        "Deserialization may execute attacker-controlled payloads.",
+EVIDENCE_RULES = {
+    "COMMAND_INJECTION": "Rule: os.system() / subprocess with shell=True — Executes OS commands from untrusted input",
+    "CODE_INJECTION": "Rule: eval() / exec() — Dynamically executes arbitrary Python code",
+    "HARDCODED_SECRET": "Rule: Secret-named variable assigned a string literal — Hardcoded credential pattern",
+    "INSECURE_DESERIALIZATION": "Rule: pickle.loads() — Deserializes untrusted data allowing arbitrary code execution",
+    "SQL_INJECTION": "Rule: Dynamic string formatting in SQL execute() — SQL injection vector",
+    "PATH_TRAVERSAL": "Rule: File path constructed from dynamic input without basename sanitization — Path traversal",
+    "SSRF": "Rule: Dynamic URL in HTTP request — Server-side request forgery vector",
+    "WEAK_CRYPTOGRAPHY": "Rule: Use of weak cryptographic hash (MD5/SHA1) — Broken or legacy algorithm",
 }
 
 
-FIX_EXPLANATIONS = {
-
-    "COMMAND_INJECTION":
-        "Replaced unsafe shell execution with secure subprocess handling.",
-
-    "CODE_INJECTION":
-        "Replaced unsafe eval/exec usage with safe literal parsing.",
-
-    "HARDCODED_SECRET":
-        "Moved sensitive values into environment variables.",
-
-    "INSECURE_DESERIALIZATION":
-        "Removed unsafe deserialization pattern.",
-}
-
-
-class SecurityExplainer:
-
-    def explain_vulnerability(
-        self,
-        vulnerability_type
-    ):
-
-        return EXPLANATIONS.get(
-            vulnerability_type,
-            "Potential security issue detected."
-        )
-
-    def explain_fix(
-        self,
-        vulnerability_type
-    ):
-
-        return FIX_EXPLANATIONS.get(
-            vulnerability_type,
-            "Applied security remediation."
-        )
-
-    def remediation_summary(
-        self,
-        vulnerability
-    ):
-
-        vulnerability_type = vulnerability.get("type")
-
-        return {
-            "issue":
-                self.explain_vulnerability(
-                    vulnerability_type
-                ),
-
-            "fix":
-                self.explain_fix(
-                    vulnerability_type
-                ),
-        }
+def generate_evidence(vulnerability):
+    vuln_type = vulnerability.get("type", "")
+    code = vulnerability.get("code", "")
+    line = vulnerability.get("line", 0)
+    rule = EVIDENCE_RULES.get(vuln_type, "Unknown rule matched")
+    return {"rule": rule, "code": code, "line": line}

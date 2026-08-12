@@ -1,332 +1,244 @@
-# 📋 Navigation: All Analysis Documents
+# Navigation — AI Risk Guard Project Map
 
-## 📂 Complete Document Collection
-
-You now have **10 comprehensive analysis documents** covering every aspect of the AI Risk Guard project.
-
----
-
-## 🎯 Which Document to Read First?
-
-### I'm Starting the Project
-→ **Start Here**: Proj_details.md (22 KB)  
-→ **Then Read**: PROJECT_STATUS.md (19 KB)  
-→ **Quick Ref**: COMPLETION_MATRIX.md (9 KB)
-
-### I'm Writing Code (Developer)
-→ **Start Here**: PROJECT_STATUS.md (current status)  
-→ **Then Read**: ARCHITECTURE_OVERVIEW.md (understand system)  
-→ **Reference**: COMPONENT_DEPENDENCY_MAP.md (trace code)  
-→ **Fix Issues**: DEAD_CODE_REPORT.md (bugs to fix)
-
-### I'm Planning Improvements (Architect)
-→ **Start Here**: REFACTORING_OPPORTUNITIES.md (improvements with code)  
-→ **Then Read**: Proj_details.md (big picture)  
-→ **Reference**: COMPONENT_DEPENDENCY_MAP.md (dependencies)
-
-### I'm Managing Timeline (PM)
-→ **Start Here**: COMPLETION_MATRIX.md (progress by week)  
-→ **Then Read**: PROJECT_STATUS.md (current blockers)  
-→ **Plan**: Proj_details.md (6-week roadmap)
-
-### I Need Quick Facts
-→ **Read**: ANALYSIS_SUMMARY.md (5-min overview)  
-→ **Visual**: VISUAL_REFERENCE_GUIDE.md (quick lookup)
-
----
-
-## 📚 Document Index (Sorted by Purpose)
-
-### Initial Analysis Documents (Read First)
-| Document | Size | Purpose | Read Time |
-|----------|------|---------|-----------|
-| **ANALYSIS_SUMMARY.md** ⭐ | 10 KB | Project overview + quick stats | 5 min |
-| **README_ANALYSIS.md** | 9 KB | Navigation guide + quick ref | 5 min |
-
-### Project Definition Documents (Required Reading)
-| Document | Size | Purpose | Read Time |
-|----------|------|---------|-----------|
-| **Proj_details.md** | 23 KB | Complete project spec + roadmap | 20 min |
-| **PROJECT_STATUS.md** | 19 KB | Current status vs. Phase 1 targets | 15 min |
-| **COMPLETION_MATRIX.md** | 9 KB | Week-by-week completion tracking | 10 min |
-
-### Technical Documentation
-| Document | Size | Purpose | Read Time |
-|----------|------|---------|-----------|
-| **ARCHITECTURE_OVERVIEW.md** | 14 KB | System design + components | 15 min |
-| **COMPONENT_DEPENDENCY_MAP.md** | 13 KB | Module relationships + imports | 15 min |
-| **VISUAL_REFERENCE_GUIDE.md** | 13 KB | Diagrams + quick lookup | 10 min |
-
-### Code Quality Documents
-| Document | Size | Purpose | Read Time |
-|----------|------|---------|-----------|
-| **DEAD_CODE_REPORT.md** | 12 KB | Issues + refactoring plan | 10 min |
-| **REFACTORING_OPPORTUNITIES.md** | 20 KB | 10 improvements with code | 20 min |
-
----
-
-## 🎯 Document Reading Paths by Role
-
-### Backend Developer (Full Stack)
-```
-1. ANALYSIS_SUMMARY.md (understand what you have)
-2. ARCHITECTURE_OVERVIEW.md (understand design)
-3. Proj_details.md (understand requirements)
-4. DEAD_CODE_REPORT.md (find bugs to fix)
-5. REFACTORING_OPPORTUNITIES.md (plan improvements)
-6. COMPONENT_DEPENDENCY_MAP.md (trace code when needed)
-7. COMPLETION_MATRIX.md (track progress)
-```
-**Total Time**: ~2-2.5 hours  
-**Then**: Start coding
-
----
-
-### Project Manager / Coordinator
-```
-1. ANALYSIS_SUMMARY.md (quick overview)
-2. Proj_details.md (project vision + roadmap)
-3. COMPLETION_MATRIX.md (week-by-week tracking)
-4. PROJECT_STATUS.md (current blockers)
-5. REFACTORING_OPPORTUNITIES.md (effort estimates)
-```
-**Total Time**: ~1.5 hours  
-**Then**: Create sprint plan
-
----
-
-### Security/Architecture Reviewer
-```
-1. ARCHITECTURE_OVERVIEW.md (system design)
-2. Proj_details.md (security considerations)
-3. COMPONENT_DEPENDENCY_MAP.md (dependency flow)
-4. DEAD_CODE_REPORT.md (code quality issues)
-5. VISUAL_REFERENCE_GUIDE.md (quick reference)
-```
-**Total Time**: ~1.5 hours  
-**Then**: Provide feedback
-
----
-
-### QA/Tester
-```
-1. ANALYSIS_SUMMARY.md (overview)
-2. ARCHITECTURE_OVERVIEW.md (execution flows)
-3. DEAD_CODE_REPORT.md (known bugs)
-4. PROJECT_STATUS.md (incomplete features)
-5. COMPLETION_MATRIX.md (what's done/pending)
-```
-**Total Time**: ~1 hour  
-**Then**: Plan test scenarios
-
----
-
-### Product/Leadership
-```
-1. Proj_details.md (project scope + vision)
-2. ANALYSIS_SUMMARY.md (current state + stats)
-3. COMPLETION_MATRIX.md (timeline projection)
-4. PROJECT_STATUS.md (critical issues)
-```
-**Total Time**: ~45 min  
-**Then**: Approve roadmap
-
----
-
-## 📊 Document Statistics
+## Project Structure
 
 ```
-Total Documents:           10 files
-Total Content:             ~130 KB
-Total Read Time:           ~115 minutes (1.9 hours)
-Lines of Analysis:         ~3500 lines
-Code Examples:             40+
-Diagrams/Tables:           80+
-Status Matrices:           15+
-```
-
----
-
-## 🔗 Cross-References
-
-### ANALYSIS_SUMMARY.md references:
-- → Project status details in PROJECT_STATUS.md
-- → Technical depth in ARCHITECTURE_OVERVIEW.md
-- → Code issues in DEAD_CODE_REPORT.md
-
-### Proj_details.md references:
-- → Implementation plan in COMPLETION_MATRIX.md
-- → Component details in ARCHITECTURE_OVERVIEW.md
-- → Current issues in PROJECT_STATUS.md
-
-### PROJECT_STATUS.md references:
-- → Fix details in REFACTORING_OPPORTUNITIES.md
-- → Week-by-week tracking in COMPLETION_MATRIX.md
-- → Component status in Proj_details.md
-
-### REFACTORING_OPPORTUNITIES.md references:
-- → Dependency analysis in COMPONENT_DEPENDENCY_MAP.md
-- → Code locations in DEAD_CODE_REPORT.md
-- → Architecture context in ARCHITECTURE_OVERVIEW.md
-
----
-
-## 🎯 Key Takeaways (One-Liners)
-
-| Document | Key Takeaway |
-|----------|---|
-| ANALYSIS_SUMMARY.md | 45% complete, 10 issues found, 2-4 weeks remaining |
-| Proj_details.md | End-to-end security system with 6-week roadmap |
-| PROJECT_STATUS.md | TIER 1 (80% done), TIER 2 (40% done), TIER 3 (0% done) |
-| COMPLETION_MATRIX.md | Critical path: W1→refactor, W3→risk model, W4→learning, W5→dashboard |
-| ARCHITECTURE_OVERVIEW.md | 7-layer architecture from scanning to reporting |
-| COMPONENT_DEPENDENCY_MAP.md | 26 active + 5 dead modules, no circular deps |
-| DEAD_CODE_REPORT.md | 1 critical bug (SecurityRescanner), 3 high issues, 250+ LOC to clean |
-| REFACTORING_OPPORTUNITIES.md | 10 refactorings; Phase 1: 2 days critical, ~3 weeks for features |
-| VISUAL_REFERENCE_GUIDE.md | Module inventory + priority matrix + quick lookup tables |
-| README_ANALYSIS.md | Navigation guide + recommended reading paths |
-
----
-
-## 🚀 Action Items (Next 3 Days)
-
-### Today (Day 1)
-- [ ] Read ANALYSIS_SUMMARY.md (5 min)
-- [ ] Read Proj_details.md (20 min)
-- [ ] Skim PROJECT_STATUS.md (10 min)
-- [ ] Time: ~35 minutes
-
-### Day 2
-- [ ] Read ARCHITECTURE_OVERVIEW.md (15 min)
-- [ ] Read DEAD_CODE_REPORT.md (10 min)
-- [ ] Review COMPLETION_MATRIX.md (10 min)
-- [ ] Time: ~35 minutes
-- [ ] **Outcome**: Understand current state + issues
-
-### Day 3
-- [ ] Read REFACTORING_OPPORTUNITIES.md (20 min)
-- [ ] Skim COMPONENT_DEPENDENCY_MAP.md (10 min)
-- [ ] Plan Week 1 work (30 min)
-- [ ] Time: ~60 minutes
-- [ ] **Outcome**: Ready to code
-
----
-
-## 💾 File Locations
-
-All documents saved in:
-```
-~/.copilot/session-state/88e85644-91ce-406d-86a1-12ac8034f55b/
-
-├── ANALYSIS_SUMMARY.md
-├── README_ANALYSIS.md
-├── Proj_details.md
-├── PROJECT_STATUS.md
-├── COMPLETION_MATRIX.md
-├── ARCHITECTURE_OVERVIEW.md
-├── COMPONENT_DEPENDENCY_MAP.md
-├── VISUAL_REFERENCE_GUIDE.md
-├── DEAD_CODE_REPORT.md
-├── REFACTORING_OPPORTUNITIES.md
-└── NAVIGATION.md (this file)
+ai-risk-guard/
+│
+├── Plan.md                              # Roadmap
+├── Deploy_Plan.md                       # Platform deployment (Render, Oracle Cloud)
+├── README.md                            # Project overview, setup, env vars
+├── AGENTS.md                            # Agent coding conventions + commands
+├── requirements.txt                     # Python dependencies
+├── pytest.ini                           # Test configuration (pythonpath=., testpaths=tests)
+├── ruff.toml                            # Ruff lint config (py313)
+├── .env.example                         # Environment variable template
+├── .github/workflows/ci.yml             # CI: pytest + ruff + mypy + frontend build
+│
+├── app/
+│   ├── main.py                          # CLI entry point + AIRiskGuard class
+│   ├── app.py                           # Flask webhook + OAuth + REST API + SPA
+│   └── metrics.py                       # Prometheus metrics
+│
+├── core/
+│   ├── agents/                          # Multi-agent pipeline
+│   │   ├── base_agent.py               # Abstract base agent
+│   │   ├── manager_agent.py            # Pipeline orchestrator (per-file, thread-safe)
+│   │   ├── scanner_agent.py            # Vulnerability scanning + test discovery
+│   │   ├── patch_agent.py              # AST + Gemini patch generation
+│   │   ├── validator_agent.py          # 5-stage validation
+│   │   ├── risk_agent.py               # Risk/quality scoring + candidate selection
+│   │   └── orchestrator_agent.py       # GitHub decisions + labels + SARIF
+│   │
+│   ├── scanner/                         # Scanning layer
+│   │   ├── vulnerability_scanner.py    # Main scanner (10 vuln types)
+│   │   ├── diff_engine.py              # Diff-aware scanning (is_new)
+│   │   ├── context_validator.py        # False positive reduction
+│   │   └── test_file_fetcher.py        # Test file + dependency discovery
+│   │
+│   ├── patch/                           # Patching layer
+│   │   ├── fixers.py                   # AST transformers (fuzzy match)
+│   │   ├── patch_orchestrator.py       # Conflict-safe multi-patch coordination
+│   │   └── llm_patcher.py              # Gemini fallback chain + caching
+│   │
+│   ├── validator/                       # Validation layer
+│   │   ├── patch_validator.py          # Syntax + import + policy + SSRF checks
+│   │   ├── sandbox.py                  # Docker sandbox + local fallback
+│   │   ├── security_rescan.py          # Re-scan patched code
+│   │   └── test_rebind.py              # Test import rebinding
+│   │
+│   ├── risk/                            # Risk analysis layer
+│   │   ├── risk_engine.py              # Weighted risk scoring (8 factors)
+│   │   ├── context_engine.py           # Context-aware adjustments
+│   │   └── metrics_extractor.py        # Code complexity metrics
+│   │
+│   ├── quality/                         # Patch quality scoring
+│   │   └── patch_scorer.py             # 6 weighted factors
+│   │
+│   ├── confidence/                      # Confidence layer
+│   │   ├── confidence.py               # Confidence scoring
+│   │   └── learning_engine.py          # Historical learning from feedback
+│   │
+│   ├── policy/                          # Policy enforcement
+│   │   └── policy_engine.py            # Organizational security policy
+│   │
+│   ├── config/                          # Pydantic v2 config models
+│   │   ├── app_config.py               # Server/webhook/llm/sarif config
+│   │   ├── risk_config.py              # Weights + gating thresholds
+│   │   ├── policy_config.py            # Policy guardrails
+│   │   ├── quality_config.py           # Quality weights
+│   │   ├── sandbox_config.py           # Docker + local limits
+│   │   └── __init__.py                 # ConfigRegistry singleton
+│   │
+│   ├── models/                          # Pydantic v2 data models
+│   │   ├── vulnerability.py            # Vulnerability + VulnerabilityType + Severity
+│   │   ├── analysis.py, patch.py       # Patch candidates/results
+│   │   ├── risk.py, scan.py            # Risk + scan results
+│   │   └── validation.py               # Validation stage results
+│   │
+│   ├── metadata/
+│   │   ├── vuln_metadata.py            # Rule IDs, CVSS-like severities, CWE/OWASP
+│   │   └── versions.py                 # Tool/engine version constants
+│   │
+│   ├── sarif/                           # SARIF 2.1.0 output
+│   │   ├── converter.py                # Findings → risk assessments
+│   │   ├── sarif_generator.py          # SARIF generation
+│   │   └── sarif_writer.py             # SARIF writer
+│   │
+│   ├── cache/                           # SQLite-backed caches
+│   │   ├── scan_cache.py               # Per-file scan results
+│   │   ├── gemini_cache.py             # LLM prompt → output (SHA256)
+│   │   ├── test_file_cache.py          # GitHub blob fetch cache (TTL)
+│   │   ├── ast_cache.py                # Pickled AST trees (safe)
+│   │   └── sandbox_cache.py            # In-proc sandbox results
+│   │
+│   ├── llm/                             # Gemini integration
+│   │   └── model_resolver.py           # Model fallback resolution
+│   │
+│   ├── exceptions/                      # Typed exceptions
+│   │   └── __init__.py                 # AIRiskGuardError hierarchy
+│   │
+│   ├── utils/                           # Core utilities
+│   │   ├── tempdir.py                  # TempDir context manager
+│   │   └── validation.py               # File/diff/code input validation
+│   │
+│   └── reporting/
+│       └── explainer.py                # Human-readable explanations
+│
+├── services/github/                     # GitHub integration
+│   ├── auth.py                          # JWT + installation tokens + OAuth
+│   └── reporter.py                      # PR comments, labels, SARIF upload
+│
+├── utils/
+│   ├── logger.py                        # JSON structured logging
+│   ├── db.py                            # SQLite persistence (users, repos, scans, findings, caches)
+│   └── retry.py                         # Retry with backoff
+│
+├── frontend/                            # React SPA
+│   ├── src/
+│   │   ├── main.jsx                     # React entry (BrowserRouter)
+│   │   ├── App.jsx                      # Route definitions (14 routes)
+│   │   ├── index.css                    # Design tokens + component classes
+│   │   ├── api/client.js                # Axios API client
+│   │   ├── components/                  # Navbar, Footer, Layout, PageHeader,
+│   │   │                               #   ThemeToggle, ScrollReveal
+│   │   ├── hooks/                       # useCountUp, useScrollReveal
+│   │   └── pages/                       # Landing, Dashboard, Repositories, RepositoryDetail,
+│   │                                   #   Scans, ScanDetail, FindingsExplorer, Metrics,
+│   │                                   #   Pipeline, Policy, Settings, Status, Docs, Login
+│   ├── index.html                       # Fonts (Sora, JetBrains Mono, Plus Jakarta Sans)
+│   ├── vite.config.js                   # Dev :3000, proxy /api→:8000, build → ../static/frontend
+│   ├── tailwind.config.js               # Custom palette + fonts
+│   └── package.json
+│
+├── sandbox/
+│   ├── Dockerfile.sandbox              # python:3.10-slim + pytest + non-root user
+│   └── mock_header.py                  # Mock env + time.sleep patch header
+│
+├── config/
+│   ├── app.yaml                         # Server, webhook, logging, sarif, llm chain
+│   ├── risk.yaml                        # Weights + gating (8.5 / 4.0)
+│   ├── quality.yaml                     # Quality weights
+│   ├── sandbox.yaml                     # Docker + local fallback limits
+│   └── policy/default.yaml              # Security policy guardrails
+│
+├── data/
+│   ├── dashboard.db                     # SQLite database (runtime)
+│   └── logs.json                        # JSON log output
+│
+├── static/frontend/                     # Built SPA (served by Flask)
+│
+├── tests/                               # 20 modules, ~550 tests
+│   ├── conftest.py                      # pytest fixtures (mock Gemini)
+│   ├── test_core.py                     # Detection + metadata
+│   ├── test_features_345.py             # Vuln types + sanitizers + diff
+│   ├── test_fixes_verification.py       # Fixer correctness
+│   ├── test_orchestrator.py             # Gating decisions
+│   ├── test_patch_agent.py / test_patch_validator.py
+│   ├── test_policy*.py                  # Policy enforcement
+│   ├── test_risk*.py                    # Risk scoring
+│   ├── test_reporter.py                 # PR comment / SARIF
+│   ├── test_github.py                   # JWT/OAuth
+│   ├── test_sarif.py, test_summary.py   # SARIF + summary
+│   ├── test_metrics.py                  # Prometheus metrics
+│   ├── test_gemini_cache.py / test_llm_patcher.py
+│   ├── test_ast_cache.py / test_retry.py
+│   ├── test_test_fetcher.py / test_test_file_cache.py / test_test_rebind.py
+│   ├── test_webhook_e2e.py              # Webhook → pipeline
+│   ├── demo.py / demo_test.py           # Demo file + tests
+│   └── ...
+│
+└── Documentation/
+    ├── ARCHITECTURE_OVERVIEW.md         # System architecture
+    ├── Proj_details.md                  # Project specification
+    ├── PROJECT_STATUS.md                # Current completion status
+    ├── VISUAL_REFERENCE_GUIDE.md        # Visual diagrams
+    ├── COMPONENT_DEPENDENCY_MAP.md      # Module dependency map
+    └── NAVIGATION.md                    # ← This file
 ```
 
 ---
 
-## 🎓 How to Use This Analysis
+## Key Documents Guide
 
-### For Learning
-- Read in order: Summary → Details → Technical → Code
-
-### For Coding
-- Reference: Dependencies → Code Issues → Opportunities
-
-### For Planning
-- Review: Status → Timeline → Matrix → Opportunities
-
-### For Presenting
-- Show: Summary → Architecture → Dashboard → Live demo
+| Document | What It Covers | Best For |
+|----------|---------------|----------|
+| `Plan.md` | Roadmap and feature planning | Planning what to build next |
+| `Deploy_Plan.md` | Platform-by-platform deployment | Deploying to Render/Oracle Cloud |
+| `README.md` | Setup, env vars, quick start | Onboarding a developer |
+| `ARCHITECTURE_OVERVIEW.md` | System design, agents, pipeline | Understanding how it works |
+| `Proj_details.md` | Full project spec, components, data models | Deep technical reference |
+| `PROJECT_STATUS.md` | Current state, test results | Quick status check |
 
 ---
 
-## ✅ Verification Checklist
+## Current Code Health
 
-Before starting development:
-
-- [ ] Read at least 3 "must-read" documents
-- [ ] Understand 7-layer architecture
-- [ ] Know the 45-day roadmap
-- [ ] Identified 5+ issues to fix
-- [ ] Understand Phase 1 vs Phase 2
-- [ ] Know what "success" looks like
-- [ ] Have a weekly plan
-- [ ] Know who to ask for help
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Backend (all core modules) | ✅ Active | No dead modules, no broken imports |
+| Frontend (React SPA) | ✅ Active | 14 pages, production build → `../static/frontend` |
+| CI/CD (GitHub Actions) | ✅ Active | pytest + ruff + mypy + frontend build |
+| Tests | ✅ ~550 passing | 20 test modules |
 
 ---
 
-## 🆘 Getting Help
+## Quick Reference: Entry Points
 
-### "I'm confused about the project"
-→ Start with **Proj_details.md** (project vision)
+```bash
+# CLI scan
+python app/main.py path/to/file.py
 
-### "I don't know where to start coding"
-→ Start with **DEAD_CODE_REPORT.md** (issues to fix first)
+# Webhook + API + SPA server (waitress)
+python app/app.py                    # → http://localhost:8000
 
-### "I want to understand the architecture"
-→ Read **ARCHITECTURE_OVERVIEW.md** + **COMPONENT_DEPENDENCY_MAP.md**
+# Frontend dev server
+cd frontend && npm run dev           # → http://localhost:3000 (proxies /api → :8000)
 
-### "I want to see what needs to be done"
-→ Read **COMPLETION_MATRIX.md** (week-by-week breakdown)
+# Frontend production build (→ ../static/frontend)
+cd frontend && npm run build
 
-### "I want to know which improvements are highest-impact"
-→ Read **REFACTORING_OPPORTUNITIES.md** (prioritized list)
+# Run tests
+python -m pytest tests/ -x -q        # ~550 tests
 
-### "I need quick facts"
-→ Skim **VISUAL_REFERENCE_GUIDE.md** (tables + diagrams)
-
----
-
-## 📈 Progress Tracking
-
-Use **COMPLETION_MATRIX.md** to track:
-- [ ] Week 1 completion %
-- [ ] Week 2 completion %
-- [ ] Week 3 completion %
-- [ ] Week 4 completion %
-- [ ] Week 5 completion %
-- [ ] Week 6 completion %
-
-Update weekly for progress visibility.
+# Lint + typecheck
+ruff check .
+mypy .
+```
 
 ---
 
-## 🎬 Next Steps
+## API Endpoints (high-level)
 
-**Recommended Sequence**:
-
-1. ✅ Read documents (1-2 hours)
-2. ✅ Understand current state
-3. ✅ Fix critical bug (SecurityRescanner)
-4. ✅ Delete dead code
-5. ✅ Create Week 1 plan
-6. ✅ Start Week 1 development
-7. ✅ Update COMPLETION_MATRIX.md daily
-8. ✅ Reference docs as needed
-
----
-
-## 📞 Document Support
-
-All documents follow same structure:
-- 📌 Executive summary (at top)
-- 📊 Detailed breakdown
-- 🎯 Specific tasks/code
-- ✅ Success criteria
-- ⚠️ Risks/considerations
-
-**Consistency**: Information flows from high-level to detailed across documents.
-
----
-
-**You're all set! Pick a document above and start reading. 🚀**
-
+```
+GET  /api/health, /api/health/db, /api/health/gemini, /api/health/sandbox
+GET  /api/dashboard, /api/metrics, /api/metrics/summary, /api/metrics/prometheus
+GET  /api/repos, /api/repos/<id>, /api/repos/<id>/scans, /api/repos/<id>/findings
+GET  /api/scans, /api/scans/<id>, /api/scans/<id>/findings
+GET  /api/findings (filters/limit)
+POST /api/findings/<id>/status, /api/feedback
+GET  /api/policy, /api/settings (POST), /api/me
+GET  /auth/login, /auth/callback, /auth/logout
+POST /webhook
+GET  /dashboard, / (SPA)
+```

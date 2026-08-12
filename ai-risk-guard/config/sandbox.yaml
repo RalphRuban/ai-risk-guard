@@ -1,0 +1,34 @@
+# AI Risk Guard - Sandbox Configuration
+docker:
+  image: "ai-risk-guard:sandbox"
+  dockerfile: "sandbox/Dockerfile.sandbox"  # Auto-build target when image is missing locally
+  build_local_image: true                    # Build the sandbox image if pull is not possible
+  memory: "512m"
+  cpu: 0.5
+  pids_limit: 32
+  network: "none"
+  read_only: true
+  tmpfs: "/tmp:rw,noexec,nosuid,size=64m"
+  timeout_seconds: 10         # Code execution timeout
+  test_timeout_seconds: 60    # Pytest execution timeout (50 tests need more time)
+  max_output_bytes: 65536     # Truncate stdout/stderr for code runs
+  test_max_output_bytes: 262144  # Truncate pytest output (verbose test output is larger)
+  cap_drop: ["ALL"]
+  security_opts: ["no-new-privileges"]
+
+# ── Local fallback limits ──
+# Applied when Docker is unavailable (e.g., on Render free tier, Windows dev).
+# Linux: all restrictions enforced via resource.setrlimit().
+# Windows: timeout_seconds and strip_secrets only (resource module unavailable).
+local:
+  memory_limit_mb: 256       # 0 = unlimited (child process virtual memory)
+  cpu_time_seconds: 8        # 0 = unlimited (child process CPU time)
+  max_processes: 16          # 0 = unlimited (child forks/threads)
+  max_file_bytes: 1048576    # 0 = unlimited (file writes)
+  timeout_seconds: 10        # Wall-clock timeout for code runs (always enforced)
+  test_timeout_seconds: 60   # Wall-clock timeout for pytest runs
+  max_output_bytes: 65536    # Truncate stdout/stderr for code runs
+  test_max_output_bytes: 262144  # Truncate pytest output
+  strip_secrets: true        # Remove API keys, tokens from child env
+
+enable_local_fallback_comparison: false

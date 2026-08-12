@@ -1,19 +1,19 @@
-# AI Risk Guard - Complete Project Details (Proj_details)
+# AI Risk Guard - Complete Project Details
 
-**Document**: Project Specification & Implementation Roadmap  
-**Version**: 1.0 (Phase 1 Focus)  
-**Status**: Active Development  
-**Last Updated**: 2026-06-10
+**Document**: Project Specification & Technical Reference  
+**Version**: 3.0 (Multi-Agent Enterprise + CI/CD)  
+**Status**: ✅ Production Ready  
+**Last Updated**: 2026-08-09
 
 ---
 
 ## 📌 Executive Summary
 
-**AI Risk Guard** is an intelligent GitHub-integrated security vulnerability detection and automated patch generation system for Python code. It combines AST analysis, machine learning feedback, and advanced validation to provide actionable security insights with high confidence.
+**AI Risk Guard** is an autonomous multi-agent security orchestration platform integrated with GitHub. It detects 10 Python vulnerability types using AST + regex analysis, generates deterministic and LLM-enhanced patches via a Gemini model fallback chain (Gemini 2.5 Flash → 1.5 Flash → 2.0 Flash Lite), validates fixes in a hardened Docker sandbox (with a local fallback), enforces organizational security policy, uploads findings to GitHub Code Scanning via SARIF, and makes risk-aware autonomous gating decisions on GitHub PRs.
 
-**Vision**: Transform GitHub security workflows by automating vulnerability detection, intelligent patching, risk assessment, and continuous learning from patch outcomes.
+**Vision**: Transform GitHub security workflows by automating vulnerability detection, intelligent patching, risk assessment, policy enforcement, and continuous learning from patch outcomes.
 
-**Target Users**: 
+**Target Users**:
 - Development teams (GitHub users)
 - Security engineers
 - DevOps/SRE teams
@@ -21,71 +21,33 @@
 
 ---
 
-## 🎯 Project Objectives
+## 🎯 Project Status
 
-### Primary Objectives (TIER 1 - CORE)
+### TIER 1: Core Features ✅
+- ✅ Vulnerability Detection (10 types — AST + regex)
+- ✅ Patch Generation (Deterministic AST Fixers + Gemini LLM + quality scoring)
+- ✅ Hardened Sandbox Validation (Docker + local fallback + caching)
+- ✅ Multi-Factor Risk Engine (8 weighted factors + policy escalation)
 
-1. **Automated Vulnerability Detection**
-   - Detect common Python security vulnerabilities (4 types)
-   - AST-based pattern matching for high accuracy
-   - Diff-aware scanning to focus on changed code
-   - Reduce false positives via context validation
+### TIER 2: High-Impact Features ✅
+- ✅ GitHub PR Integration (Webhook / Reporter / Checks / SARIF)
+- ✅ Diff-Aware Scanning (`is_new` tagging for PR gating)
+- ✅ Confidence Scoring (Adaptive + historical learning engine)
+- ✅ Contextual Risk Analysis (context validation + false-positive filtering)
 
-2. **Intelligent Patch Generation**
-   - Automatically generate secure patches
-   - Multiple patch strategies (rule-based → ML-enhanced)
-   - Explain WHY each patch is secure
-   - Multi-candidate generation (choose safest option)
+### TIER 3: Advanced Features ✅
+- ✅ **Autonomous Multi-Agent Mesh**: Scanner, Patch, Validator, Risk, Orchestrator + Manager agents
+- ✅ **Multi-Candidate LLM Patching**: Gemini fallback chain generates context-aware candidates
+- ✅ **Self-Improving Feedback Loop**: Learning via GitHub Reactions (🚀) + PR merges + SARIF dismissals
+- ✅ **CWE/OWASP Mapping + SARIF 2.1.0**: Automatic industry-standard tagging with Code Scanning upload
+- ✅ **Test Execution & Validation**: Auto-discovers test files, rebinds imports, runs `pytest` in sandbox
 
-3. **Advanced Validation**
-   - Sandboxed code execution (safe, controlled environment)
-   - Syntax and semantic validation
-   - Re-scan patched code for remaining vulnerabilities
-   - Confidence scoring for each fix
-
-4. **Risk Assessment**
-   - Multi-factor risk calculation
-   - Context-aware scoring
-   - Severity weighting
-   - Exposure and complexity analysis
-
-5. **GitHub Integration**
-   - Webhook-based triggering
-   - Automatic PR comments with findings
-   - GitHub App authentication
-   - Seamless workflow integration
-
-### Secondary Objectives (TIER 2 - DIFFERENTIATION)
-
-6. **Intelligent Confidence Learning**
-   - Track patch acceptance outcomes
-   - Adapt confidence weights based on history
-   - Self-improving system (learns from feedback)
-   - Moves toward ML-assisted security
-
-7. **Advanced Risk Model**
-   - File criticality scoring
-   - Code complexity hotspot detection
-   - Change size impact analysis
-   - Context-aware severity adjustment
-
-8. **Professional Dashboard**
-   - Real-time metrics visualization
-   - Vulnerability trends
-   - Patch success rates
-   - Risk distribution analysis
-
-9. **CI/CD Integration**
-   - GitHub Actions support
-   - Automated security gates
-   - Policy enforcement
-   - Deployment safety checks
-
-10. **Production Readiness**
-    - Comprehensive documentation
-    - Docker containerization
-    - Performance optimization
-    - Security hardening
+### TIER 4: Productization ✅
+- ✅ **Professional Visual Dashboard**: React 18 + Vite SPA with real analytics and Light/Dark theme
+- ✅ **Security Policy Engine**: Centralized YAML governance (`config/policy/default.yaml`) with mandatory sanitizers/wrappers
+- ✅ **Autonomous Gating**: Risk-aware "Request Changes" decisions on GitHub
+- ✅ **CI/CD**: GitHub Actions running pytest + ruff + mypy + frontend build
+- ✅ **Operationally Observable**: Prometheus metrics, SARIF Code Scanning alerts, power: `waitress`
 
 ---
 
@@ -94,708 +56,505 @@
 ### High-Level Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ GitHub (Event Source)                                       │
-│ • PR created/updated                                        │
-│ • Webhook triggered                                         │
-└────────────────────┬────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│ GitHub (Event Source)                                                   │
+│ • PR created/synchronize/reopened webhook                               │
+│ • Installation events, reactions, PR merges/closed                      │
+└────────────────────┬────────────────────────────────────────────────────┘
                      │
                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│ AI Risk Guard System                                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  LAYER 1: INGESTION                                         │
-│  ├─ Webhook handler (app/app.py)                           │
-│  ├─ Signature verification (HMAC-SHA256)                   │
-│  ├─ Repository cloning                                     │
-│  └─ File discovery                                         │
-│                                                              │
-│  LAYER 2: SCANNING (core/scanner/)                         │
-│  ├─ AST analysis (vulnerability patterns)                  │
-│  ├─ Regex analysis (hardcoded secrets)                     │
-│  ├─ Diff-aware filtering (changed lines only)              │
-│  ├─ Entropy detection (random tokens)                      │
-│  └─ Context validation (reduce false positives)            │
-│                                                              │
-│  LAYER 3: PATCHING (core/patch/)                           │
-│  ├─ Patch generation (AST transformations)                 │
-│  ├─ Multi-candidate ranking                                │
-│  ├─ Conflict detection                                     │
-│  └─ Safe patch application (transactional)                 │
-│                                                              │
-│  LAYER 4: VALIDATION (core/validator/)                     │
-│  ├─ Syntax validation                                      │
-│  ├─ Sandbox execution (mode: compile/safe-run/exec)        │
-│  ├─ Security re-scan                                       │
-│  └─ Semantic validation                                    │
-│                                                              │
-│  LAYER 5: ANALYSIS (core/risk/ + core/confidence/)         │
-│  ├─ Risk scoring (multi-factor weighted)                   │
-│  ├─ Confidence calculation                                 │
-│  ├─ Metrics extraction (complexity, LOC)                   │
-│  └─ Context-aware adjustments                              │
-│                                                              │
-│  LAYER 6: LEARNING (core/confidence/)                      │
-│  ├─ Feedback collection                                    │
-│  ├─ Historical tracking                                    │
-│  ├─ Confidence adaptation                                  │
-│  └─ Success rate calculation                               │
-│                                                              │
-│  LAYER 7: REPORTING (services/github/)                     │
-│  ├─ Vulnerability explanation                              │
-│  ├─ Patch suggestion formatting                            │
-│  ├─ PR comment generation                                  │
-│  └─ GitHub API integration                                 │
-│                                                              │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Output: PR Comment with Findings + Suggestions              │
-│ • Vulnerability details (type, line, severity)             │
-│ • Proposed patch code                                       │
-│ • Risk score (0-10)                                         │
-│ • Confidence percentage                                     │
-│ • Validation status                                         │
-│ • Feedback link                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Flask Server (app/app.py → waitress, port 8000)                         │
+│ • HMAC-SHA256 webhook signature verification (X-Hub-Signature-256)      │
+│ • Webhook dedup (TTL 300s), ThreadPoolExecutor (max 3 concurrent)        │
+│ • Token caching and OAuth session management (auto-refresh)              │
+│ • 30+ REST API routes (dashboard, repos, scans, findings, metrics)       │
+└────────────────────┬────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ManagerAgent (app → core/agents/manager_agent.py)                       │
+│  Fresh agent instances per file (thread-safe pipeline)                  │
+│                                                                          │
+│  1. SCANNER AGENT — vulnerability detection + test discovery            │
+│  2. PATCH AGENT   — deterministic AST fixers + LLM candidates          │
+│  3. VALIDATOR AGENT — syntax → sandbox (Docker/local) → rescan → policy│
+│  4. RISK AGENT    — quality scoring, policy, confidence, risk, evidence│
+│  5. ORCHESTRATOR  — executive decision + labels + SARIF                │
+└────────────────────┬────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Outputs                                                                  │
+│ • PR comment (hybrid report: New vs Legacy sections)                    │
+│ • GitHub decision (COMMENT vs REQUEST_CHANGES)                          │
+│ • Risk-prefixed PR labels (security-risk-N)                             │
+│ • SARIF 2.1.0 upload → GitHub Code Scanning                              │
+│ • SQLite persistence + Prometheus metrics                               │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 🔄 Complete Workflow
 
-### User Perspective (Happy Path)
-
 ```
-Step 1: Developer Creates PR
-├─ Writes code
-├─ Commits to feature branch
-└─ Opens PR
-
-Step 2: AI Risk Guard Triggered
-├─ GitHub sends webhook
-├─ System clones repository
-├─ Analyzes all Python files
-
-Step 3: Vulnerability Detected
-├─ Identifies insecure patterns
-├─ Determines severity
-├─ Calculates risk
-
-Step 4: Patch Generated
-├─ Creates secure fix
-├─ Validates syntax
-├─ Tests in sandbox
-
-Step 5: Risk Assessed
-├─ Multi-factor calculation
-├─ Confidence scoring
-├─ Context analysis
-
-Step 6: PR Comment Posted
-├─ Shows findings
-├─ Suggests patches
-├─ Explains risks
-
-Step 7: Developer Reviews
-├─ Reads feedback
-├─ Accepts patch suggestion
-├─ Applies fix
-
-Step 8: Feedback Recorded
-├─ System learns outcome
-├─ Updates confidence weights
-├─ Improves future detections
-
-Step 9: Dashboard Updated
-├─ Metrics incremented
-├─ Trends calculated
-├─ Analytics recorded
+1. GitHub sends POST /webhook (pull_request: opened/synchronize/reopened)
+   or installation / reaction / PR closed events.
+2. Flask verifies HMAC-SHA256 signature; dedupe via 300s TTL.
+3. Extract repo_name, PR number, install_id; upsert repo from payload.
+4. Submit to ThreadPoolExecutor (background) → returns 202 immediately.
+5. Background worker (zero-copy ingestion, no disk clone):
+   a. Fetch PR files via GitHub API (paginated).
+   b. For each modified target file:
+      - Fetch full content (network), write to TempDir.
+      - ManagerAgent.process_file(): Scanner → Patch → Validator → Risk
+        (per-file agent instances).
+   c. Test file discovery + dependency fetch via test_file_fetcher;
+      rebind test imports and stage deps on disk.
+   d. Concurrency: per-file scans run in safety-scoped threads.
+6. OrchestratorAgent computes worst risk across NEW actionable findings:
+   - max_risk >= auto_request_changes_above (4.0) → REQUEST_CHANGES
+   - max_risk >= max_allowed_risk (8.5)          → REQUEST_CHANGES
+   - silent findings (DEBUG_CODE, TLS) never gate.
+7. Post PR comment (65 KB truncation-safe) + SARIF upload in parallel.
+8. Persist scan, findings, feedback, dashboard metrics; clear caches as needed.
+9. Dashboard/metrics update on next load; reaction/merge events write feedback.
 ```
 
 ---
 
 ## 📦 Component Breakdown
 
-### Core Modules (27 components)
+### Agent Mesh (`core/agents/`)
 
-#### SCANNER LAYER (6 modules)
 ```
-core/scanner/
-├── vulnerability_scanner.py   (main orchestrator)
-├── ast_scanner.py             (AST pattern matching)
-├── regex_scanner.py           (regex-based secrets)
-├── diff_engine.py             (diff-aware filtering)
-├── context_validator.py       (reduce false positives)
-└── entropy_detector.py        (entropy-based detection)
-```
-
-**Responsibility**: Detect all vulnerabilities in code  
-**Input**: File path or code string  
-**Output**: List[Dict with vulnerability details]
-
----
-
-#### PATCH LAYER (7 modules - will be consolidated)
-```
-core/patch/
-├── patch_orchestrator.py      (safe multi-patch coordination)
-├── fixers.py                  (AST transformations - canonical)
-├── conflict_analyzer.py       (detect patch conflicts)
-├── dependency_graph.py        (topological ordering)
-├── patch_generator.py         (human-readable patches)
-├── ast_patch_engine.py        (DEPRECATED - delete)
-└── transformers.py            (UNUSED - delete)
-```
-
-**Responsibility**: Generate and apply secure patches  
-**Input**: Code + list of vulnerabilities  
-**Output**: Patched code + diff + metadata
-
----
-
-#### VALIDATOR LAYER (3 modules)
-```
-core/validator/
-├── patch_validator.py         (syntax/semantic checks)
-├── sandbox.py                 (safe code execution)
-└── security_rescan.py         (vulnerability re-scan - HAS BUG)
-```
-
-**Responsibility**: Verify patches are safe and effective  
-**Input**: Patched code  
-**Output**: Validation results + sandbox output
-
----
-
-#### RISK LAYER (3 modules)
-```
-core/risk/
-├── risk_engine.py             (weighted risk calculation)
-├── context_engine.py          (context-aware adjustments)
-└── metrics_extractor.py       (code metrics extraction)
-```
-
-**Responsibility**: Assess risk and impact  
-**Input**: Vulnerability + patch + validation results  
-**Output**: Risk score (0-10) + breakdown
-
----
-
-#### CONFIDENCE LAYER (2 modules)
-```
-core/confidence/
-├── confidence.py              (confidence scoring)
-└── learning_engine.py         (historical learning)
-```
-
-**Responsibility**: Estimate fix reliability  
-**Input**: Vulnerability + patch + validation + history  
-**Output**: Confidence score (0.0-1.0)
-
----
-
-#### REPORTING LAYER (3 modules)
-```
-core/reporting/explainer.py    (generate explanations)
-services/github/
-├── reporter.py                (format PR comments)
-├── auth.py                    (GitHub App authentication)
-└── pr_fetcher.py              (UNUSED - delete)
-```
-
-**Responsibility**: Communicate findings to users  
-**Input**: Analysis results  
-**Output**: PR comment + feedback tracking
-
----
-
-#### APPLICATION LAYER (2 modules)
-```
-app/
-├── main.py                    (CLI orchestrator)
-├── app.py                     (Flask webhook server)
-└── config.py                  (UNUSED - delete)
-```
-
-**Responsibility**: Application entry points  
-**Input**: File path (CLI) or webhook (HTTP)  
-**Output**: Formatted report
-
----
-
-#### UTILITIES (2 modules)
-```
-utils/
-├── logger.py                  (JSON structured logging)
-└── db.py                      (SQLite persistence - not integrated)
+├── base_agent.py          Abstract BaseAgent (std logging/metrics)
+├── manager_agent.py       ManagerAgent — shared context builder + per-file pipeline, thread-safe
+├── scanner_agent.py       ScannerAgent — scanner + caches + diff-aware
+├── patch_agent.py         PatchAgent — AST baseline + LLM candidates
+├── validator_agent.py     ValidatorAgent — PatchValidator/Sandbox/Rescanner/SSRF verify
+├── risk_agent.py          RiskAgent — quality, policy, confidence, priority, risk
+└── orchestrator_agent.py  OrchestratorAgent ("Executive" gating decision; also generates SARIF)
 ```
 
 ---
 
-## 🎨 Data Models
+#### SCANNER (`core/scanner/`)
 
-### Vulnerability Object
+```
+├── vulnerability_scanner.py   Phase-2 AST scanner — 10 vuln types + diff-awareness + metadata context
+├── diff_engine.py             DiffAwareScanner.parse_diff between old/new code
+├── context_validator.py       False-positive reduction (test/comment/placeholder/env-var)
+└── test_file_fetcher.py       Discover + fetch test files & deps (GitHub raw/code commits, package-aware)
+```
+
+**Covers**: COMMAND_INJECTION, CODE_INJECTION, HARDCODED_SECRET, INSECURE_DESERIALIZATION, SQL_INJECTION, PATH_TRAVERSAL, SSRF, WEAK_CRYPTOGRAPHY, TLS_VERIFICATION_DISABLED, DEBUG_CODE.
+
+---
+
+#### PATCH (`core/patch/`)
+
+```
+├── fixers.py               ast.get_source_segment fuzzy match + SUPPORTED_FIXER_TYPES + apply_patch_to_content
+├── llm_patcher.py          Gemini fallback chain + retry/backoff + rate-limit semaphore + SHA256 prompt cache
+└── patch_orchestrator.py   apply_patches_safely — line-descending, used_lines conflict tracking
+```
+
+#### VALIDATOR (`core/validator/`)
+
+```
+├── patch_validator.py      validate_ast, validate_imports (dangerous imports; DANGEROUS_IMPORTS),
+│                           validate_policy, validate_ssrf
+├── sandbox.py              Hardened Docker sandbox + local fallback; BLOCKED_PATTERNS; SandboxCache; temp isolation
+├── security_rescan.py      SecurityRescanner — re-scan after patch (success=False if still vulnerable)
+└── test_rebind.py          rebind_test_imports — rewrite tests/ package imports to module under validation
+```
+
+Sandbox hardening (Docker):
+- CPU 0.5, memory 512m, pids_limit 32, `network: none`, `read_only: true`
+- `tmpfs /tmp:rw,noexec,nosuid,size=64m`, cap_drop `ALL`, `no-new-privileges`
+- Code timeout 10s (`test_timeout_seconds` 60), output truncated 64 KB/256 KiB
+- Non-root `sandboxuser`; blocked patterns; local fallback (+`setrlimit` on Linux) with `strip_secrets: true`
+
+#### QUALITY, RISK & CONFIDENCE (`core/quality|risk|confidence/`)
+
+```
+quality/    patch_scorer.py    PatchScorer — 6 weighted factors (syntax, security, tests, complexity, format, confidence)
+risk/       risk_engine.py     RiskEngine — 8 weighted factors + severity normalization + gating thresholds
+            context_engine.py  Context-aware adjustments
+            metrics_extractor.py Code complexity metrics
+confidence/    confidence.py   BASE_CONFIDENCE per type + env-aware adjustments (docker/sandbox/test)
+            learning_engine.py Time-weighted decay (30d half-life), MIN_SAMPLES=5, feedback stats query
+```
+
+#### POLICY (`core/policy/`)
+```
+└── policy_engine.py          PolicyEngine — loads config.policy; check_compliance; enforce_sanitizers; apply_policy
+```
+Enforcement rules (YAML-driven in `config/policy/default.yaml`):
+- forbidden modules, forbidden functions (os.system/popen/eval/exec/hashlib.md5/sha1)
+- mandatory sanitizers (`subprocess.run/Popen … shell=False`), sensitive paths (`auth/`, `secrets/`, …)
+- restricted fn args (`hashlib.new` md5/sha1/md4/sha), mandatory SSRF wrappers (`validate_url_ssrf` for requests/urllib/httpx)
+- path traversal wrappers (`os.path.basename`, `safe_path_join` for `open`)
+- forbidden assignments, mandatory parameterized queries (package vs f-string/%); policy import-time config
+
+#### SARIF (`core/sarif/`)
+```
+├── converter.py        findings_to_risk_assessments, build_analysis_summary, build_analysis_result
+├── sarif_generator.py  SARIF 2.1.0 generator (severity map, CWE/OWASP/compliance, commit-SHA metadata)
+└── sarif_writer.py     SARIFWriter for GitHub Code Scanning
+```
+
+#### CACHE (`core/cache/`) — SQLite-backed
+├── scan_cache.py       per-file cache (content hash → scan output) — avoids repeat scans
+├── gemini_cache.py     SHA256→JSON for prompt→output
+├── test_file_cache.py  GitHub-blob based fetch cache, TTL
+├── ast_cache.py        pickled AST trees (safe RestrictedUnpickler)
+└── sandbox_cache.py    in-process dict
+
+#### LLM (`core/llm/`)
+- `model_resolver` for quality-ordered fallback chain (gemini-3.5-flash → gemini-3.6-flash → gemini-3.5-flash-lite → gemini-3.1-flash-lite); prompt-SHA-256 cache; sanitized prompt handling in `llm_patcher.py`.
+
+#### EXCEPTIONS (`core/exceptions/`)
+ScanError, PatchError, ValidationError, SandboxError, RiskAnalysisError, CacheError, ResourceCleanupError, InputValidationError (all under `AIRiskGuardError`).
+
+#### CONFIG (`core/config/`)
+- Pydantic v2 models: AppConfig, PolicyConfig, RiskConfig, QualityConfig, SandboxConfig (+ nested), `ConfigRegistry` lazy-load from `config/*.yaml`.
+
+---
+
+## 🎨 Data Models (Pydantic v2)
+
+### Vulnerability (`core/models/vulnerability.py`)
 ```python
-{
-    "type": "COMMAND_INJECTION",        # One of 4 types
-    "file": "src/app.py",
-    "line": 42,
-    "column": 10,
-    "severity": "HIGH",                 # HIGH/MEDIUM/LOW
-    "description": "Unsafe shell execution",
-    "context": "os.system(user_input)",
-    "cwe": "CWE-78",
-    "owasp": "A03:2021 – Injection"
-}
+class VulnerabilityType(Enum):
+    COMMAND_INJECTION, CODE_INJECTION, HARDCODED_SECRET,
+    INSECURE_DESERIALIZATION, SQL_INJECTION, PATH_TRAVERSAL,
+    SSRF, WEAK_CRYPTOGRAPHY, TLS_VERIFICATION_DISABLED, DEBUG_CODE
+
+class Severity(Enum): HIGH | MEDIUM | LOW
+
+class Vulnerability(BaseModel):
+    type: VulnerabilityType
+    file, line, code, severity, message,
+    description, cwe, owasp, is_new: bool,
+    function: str | None, context_lines: list | None
 ```
 
-### Analysis Result Object
-```python
-{
-    "vulnerability": {... Vulnerability ...},
-    "patch": "patched code string",
-    "diff": "unified diff format",
-    "validation": {
-        "success": bool,
-        "syntax_valid": bool,
-        "semantic_valid": bool,
-        "errors": [str]
-    },
-    "sandbox": {
-        "success": bool,
-        "output": str,
-        "errors": [str],
-        "execution_time_ms": int
-    },
-    "rescan": {
-        "success": bool,
-        "remaining_vulnerabilities": [...]
-    },
-    "confidence": 0.85,                 # 0.0-1.0
-    "risk": 7.2,                        # 0.0-10.0
-    "risk_breakdown": {
-        "severity": 0.95,
-        "type": 0.90,
-        "validation": 0.92,
-        "complexity": 0.78,
-        "sensitivity": 0.85,
-        "exposure": 0.75
-    }
-}
-```
+Other models: `analysis`, `patch` (PatchSource AST/LLM, PatchCandidate, PatchResult), `risk` (RiskFactor, CodeMetrics, RiskAssessment), `scan` (ScanResult with `success` + ISO timestamps), `validation` (SyntaxValidationResult, SandboxResult, RescanResult, ValidationResult).
+Models coerce; reporter/SARIF reads both Pydantic (via `generate_sarif`) and dict interfaces.
 
 ---
 
 ## 🔐 Vulnerability Types Covered
 
-| Type | Example | Fix Strategy | Severity |
-|------|---------|---|---|
-| COMMAND_INJECTION | `os.system(user_input)` | Use subprocess with shell=False | HIGH |
-| CODE_INJECTION | `eval(user_input)` | Use ast.literal_eval() | HIGH |
-| HARDCODED_SECRET | `PASSWORD = os.getenv("PASSWORD")` | Move to environment var | HIGH |
-| INSECURE_DESERIALIZATION | `pickle.loads(data)` | Use json.loads() | HIGH |
+All 10 types (from `core/metadata/vuln_metadata.py`): Rule IDs — **CMD001, EXEC001, SECRET001, SQL001, DESER001, PATH001, SSRF001, CRYPTO001, DEBUG001, TLS001**.
+
+| # | Type (Vuln Name) | Example | Fix Strategy | Severity | CVSS-like |
+|---|-------------------|---------|--------------|----------|-----------|
+| 1 | COMMAND_INJECTION | `os.system(user_input)` | `subprocess.run(shlex.split(...), shell=False)` | HIGH | 9.5 |
+| 2 | CODE_INJECTION | `eval(user_input)` | `ast.literal_eval()` | HIGH | 9.5 |
+| 3 | HARDCODED_SECRET | `PASSWORD = "…"` | env-var / `os.getenv` | HIGH | 8.0 |
+| 4 | INSECURE_DESERIALIZATION | `pickle.loads(data)` | `json.loads` | HIGH | 8.0 |
+| 5 | SQL_INJECTION | `execute(f"…{id}")` | parameterized tuple binding | HIGH | 9.0 |
+| 6 | PATH_TRAVERSAL | `open("/uploads/"+f)` | `os.path.basename()` / safe_path_join | HIGH | 7.0 |
+| 7 | SSRF | `requests.get(user_url)` | `validate_url_ssrf()` | HIGH | 7.0 |
+| 8 | WEAK_CRYPTOGRAPHY | `hashlib.md5(data)` | `hashlib.sha256()`/policy governed | MEDIUM | 5.0 |
+| 9 | TLS_VERIFICATION_DISABLED | `verify=False` | force True (informational) | LOW | — |
+| 10 | DEBUG_CODE | `breakpoint()`/`pdb` | remove (informational) | LOW | — |
+
+> `DEBUG_CODE` `TLS_VERIFICATION_DISABLED` are **silent findings** — they never gate a PR decision.
 
 ---
 
-## 🎯 Phase 1 Roadmap (45 Days)
+## 🧩 Agent Mesh Details
 
-### Week 1: Stabilization & Refactoring
-**Goal**: Clean architecture, remove dead code, fix bugs
+### Manager Agent
+- Builds a per-context `{file_path, pr_context, diff_data, repo_root, …}`; constructs fresh `ScannerAgent`, `PatchAgent`, `ValidatorAgent`, `RiskAgent` per file (thread-safety); `process_file()` executes the full chain.
 
-- [ ] Fix SecurityRescanner import bug
-- [ ] Delete ast_patch_engine.py (duplicate)
-- [ ] Delete transformers.py (unused)
-- [ ] Remove pr_fetcher.py (unused)
-- [ ] Clean project structure
-- [ ] Centralize error handling
-- [ ] Improve logging coverage
+### Scanner Agent
+- Wraps `VulnerabilityScanner`, `ScanCache`, `DiffAwareScanner`; validates inputs via `core.utils.validation` (`validate_file_path`, `validate_diff_data`, `validate_code_input`, safe extensions). Discovers test files via `test_file_fetcher` (predict → fetch → dependent deps).
 
-**Deliverable**: Production-ready codebase (no crashes)
+### Patch Agent
+- Produces `"baseline_ast"` deterministic patch first; then `LLMPatcher` candidates; `PatchCache`; gates on policy (`enforce_sanitizers`, forbidden modules/functions/assignments, parameterized queries).
 
----
+### Validator Agent
+- Runs `PatchValidator` (AST/syntax, imports validity), `Sandbox` (execution), `SecurityRescanner` (re-scan), SSRF patch verification, then policy compliance. Parallel candidate validation via `ThreadPoolExecutor`.
 
-### Week 2: Advanced Validation Sandbox (Level 1.5)
-**Goal**: Enhanced sandbox with multiple execution modes
+### Risk Agent
+- Applies `PolicyEngine`, `PatchScorer` (6 quality weights incl. negative complexity reward), `compute_confidence`, `compute_priority`, `generate_evidence`, `compute_risk` + `explain_risk`.
 
-- [ ] Add "compile" mode (parse-only)
-- [ ] Add "safe-run" mode (restricted execution)
-- [ ] Implement memory limits
-- [ ] Add configurable timeouts
-- [ ] Resource profiling
-- [ ] Improve error messages
-
-**Deliverable**: Sandbox supports 3 execution modes + resource control
-
----
-
-### Week 3: Multi-Factor Risk Model
-**Goal**: Sophisticated risk calculation from multiple dimensions
-
-- [ ] Integrate Radon (complexity analysis)
-- [ ] Implement code complexity scoring
-- [ ] Add file sensitivity detection
-- [ ] Calculate exposure metrics
-- [ ] Combine all 7 factors
-- [ ] Add context-aware adjustments
-- [ ] Create risk explanation engine
-
-**Deliverable**: Risk scores reflect true impact (not just severity)
-
----
-
-### Week 4: Feedback Learning System
-**Goal**: Adaptive system that improves from outcomes
-
-- [ ] Create POST /feedback endpoint
-- [ ] Integrate database (db.py)
-- [ ] Implement feedback storage
-- [ ] Wire learning engine
-- [ ] Update confidence calculation
-- [ ] Add feedback UI/form
-- [ ] Create feedback analytics
-
-**Deliverable**: System learns from patch outcomes + improves over time
-
----
-
-### Week 5: Advanced Dashboard
-**Goal**: Professional metrics visualization
-
-- [ ] Setup React frontend
-- [ ] Create API endpoints (/api/metrics, /api/trends, etc.)
-- [ ] Build Chart.js visualizations
-- [ ] Implement real-time metrics
-- [ ] Create trend charts
-- [ ] Build vulnerability table
-- [ ] Deploy dashboard UI
-
-**Deliverable**: Interactive dashboard showing security metrics + trends
-
----
-
-### Week 6: Integration & Expo Preparation
-**Goal**: Production deployment + presentation readiness
-
-- [ ] Setup GitHub Actions workflow
-- [ ] Create comprehensive README
-- [ ] Add architecture diagrams
-- [ ] Document API endpoints
-- [ ] Prepare demo scenarios
-- [ ] Create demo script
-- [ ] Setup deployment (Docker/Cloud)
-- [ ] Final testing
-
-**Deliverable**: Production-ready system ready for presentation
+### Orchestrator Agent
+- "Executive": gates on NEW-only actionable findings (silent excluded) using `auto_request_changes_above` (4.0) and `max_allowed_risk` (8.5). Sets PR labels (`security-risk-N`) and attaches SARIF. Complies with `skip_if_all_dismissed`.
 
 ---
 
 ## 🛠️ Technology Stack
 
 ### Core Languages
-- **Python 3.9+** (main)
-- **JavaScript/TypeScript** (React frontend)
-- **YAML** (GitHub Actions)
-- **SQL** (SQLite)
+- **Python 3.13+** (backend — Flask, click, sandbox)
+- **JavaScript** (React 18 + Vite 5 SPA)
+- **SQL** (SQLite), **YAML** (config), **Docker** (sandbox)
 
 ### Key Libraries
-
 | Category | Libraries | Purpose |
 |----------|-----------|---------|
-| **Web** | Flask, FastAPI | Webhook server + API |
-| **AST Analysis** | ast module, radon | Code analysis + complexity |
-| **GitHub** | PyJWT, PyGithub, requests | GitHub App integration |
-| **Security** | cryptography, PyNaCl | Encryption + HMAC |
-| **Data** | pandas, numpy | Metrics + analytics |
-| **ML (Future)** | scikit-learn, xgboost, shap | ML-based patch generation |
-| **Testing** | pytest | Unit + integration tests |
-| **Frontend** | React, Chart.js | Dashboard UI |
+| **Web** | Flask, waitress | Webhook + API + SPA serving |
+| **AST** | `ast`, `ast.get_source_segment` | Detection + patch transformation |
+| **GitHub** | PyJWT, requests | Auth/JWT, API, Code Scanning |
+| **LLM** | google-genai | Gemini fallback chain patching |
+| **Data** | pydantic v2, numpy | Models + cyber validation |
+| **Config** | PyYAML, pydantic | Pydantic models from config |
+| **Testing** | pytest, hypothesis, pytest-mock | 550+ unit/feature tests + property tests |
+| **Frontend** | React, Vite, Tailwind, Chart.js, framer-motion | SPA dashboard |
+| **Ops** | prometheus_client, waitress, docker, psutil | Metrics, HTTP (waitress), sandbox runtime |
+
+### Frontend Design System
+- **React 18 + Vite 5** (dev port 3000; proxy `/api → :8000`; build into `../static/frontend`)
+- **Tailwind CSS** scaffold + **custom CSS-variable design tokens** in `src/index.css`
+- Three-pillar color zones: **Blue** (`#155EEF/#3B82F6` — tech/primary), **Red** (`#E11D48/#F43F5E` — energy/critical), **Silver** (`#A8B0BC/…` — data/structure)
+- Component classes: `enterprise-card`, `card-blue|red|silver`, `.stat-icon`, `.eyebrow`, `.k-title`, `.k-sub`, `.btn-primary|accent|critical|outline|secondary`, `.badge` (ok/warn/blue/red), `.input-field`, `.stat-heading`, `.stat-label`, `.chart-label`
+- Chart.js 4 + react-chartjs-2 (`Bar` + `Doughnut`); framer-motion for reveal + AnimatePresence
 
 ---
 
-## 📊 Success Metrics
+## 🌐 Frontend Pages & Routes
 
-### Correctness Metrics
-- ✅ Detection rate: >90% for seeded vulnerabilities
-- ✅ False positive rate: <10%
-- ✅ Patch success rate: >85% syntactically valid
+> SPA served by Flask at `/` (production build → `../static/frontend`).
 
-### System Metrics
-- ✅ Response time: <5 seconds per file
-- ✅ Webhook reliability: 99%+ uptime
-- ✅ Database performance: <100ms query time
-
-### Quality Metrics
-- ✅ Test coverage: >80%
-- ✅ Documentation: Complete (API + architecture)
-- ✅ Code health: Zero critical bugs
-
-### Learning Metrics (Week 4+)
-- ✅ Confidence accuracy: Improves 5% per week from feedback
-- ✅ Patch adaptation: Learns from acceptance patterns
-- ✅ Risk prediction: Correlates with actual impact
+| Route | Page | Auth | Purpose |
+|-------|------|------|---------|
+| `/` | Landing | public | Cinematic hero + marketing form |
+| `/pipeline` | Pipeline | public | Visual 5-stage pipeline map |
+| `/login` | Login | public | GitHub OAuth entry |
+| `/docs` | Docs | public | Getting-started docs |
+| `/status` | Status | public | Live health (DB/Gemini/Sandbox) |
+| `/dashboard` | Dashboard | required | KPI cards, donut/bar charts, Needs-Attention |
+| `/policy` | Policy | required | See enforced policy + raw YAML |
+| `/repositories` | Repositories | required | Grid index (search, counts) |
+| `/repositories/:repoId` | RepositoryDetail | required | Charts + findings table + patch feedback |
+| `/scan/:scanId` | ScanDetail | required | Full PR report + per-finding feedback |
+| `/findings` | FindingsExplorer | required | Cross-repo triage + filters + actions |
+| `/scans` | Scans | required | "Pull Requests" table |
+| `/metrics` | Metrics | required | Prometheus KPI + agent/sandbox tables |
+| `/settings` | Settings | required | Profile, installs, scan_mode, network, repos |
 
 ---
 
-## 🚀 Deployment Architecture
+## 🔑 GitHub & OAuth
 
-### Current (Phase 1)
-```
-GitHub PR
-    ↓
-Webhook → Flask Server (port 8000)
-    ↓
-Process PR
-    ↓
-Post Comment
-```
+- **App-only** discovery: repos come from webhook payloads/installations, no GitHub API repo scan.
+- **JWT**: GitHub App JWT (exp 540s, raw PEM or path) → installation access tokens
+- **Install token auto-refresh** (55-min lifecycle); OAuth access token auto-refresh via refresh-token
+- **OAuth login**: GitHub App OAuth, no passwords. `/auth/callback` exchanges code; `get_user_installations`. Session stores github_id + tokens; `upsert_user` + installations table.
+- **Webhook auth**: `X-Hub-Signature-256` HMAC-SHA256; installation/repo events
+- **Reporter**: collapsible finding cards, `BOT_MARKER` comments, duplicates cleanup, `_RETRY_KWARGS` (3 retries + backoff + Retry-After), `set_pr_labels`.
+- **SARIF**: uploads to Code Scanning (gzip+base64; ref `refs/pull/N/head`); handles 202/422/429, polls status, reconciles all dismissed alerts.
 
-### Production Target
-```
-GitHub PR
-    ↓
-Webhook → Load Balancer
-    ↓
-┌─────────────┬─────────────┐
-│  Container  │  Container  │
-│  Instance 1 │  Instance 2  │
-└─────────────┴─────────────┘
-    ↓
-Database (PostgreSQL or DynamoDB)
-    ↓
-Dashboard (S3 + CloudFront or Vercel)
-```
+---
+
+## 💾 Database (SQLite — `utils/db.py`)
+
+Tables: `dashboard` (key/value stats), `users`, `user_installations`, `user_settings`, `repos`, `scans`, `findings` (scan_id, vuln_type, severity, risk, file, line, is_new, status open/resolved/dismissed), `pr_findings` (PR-level join), `patch_feedback` (per-user feedback with dedup).
+SQLite-backed caches: `scan_cache`, `gemini_cache` (SHA256 → output), `test_file_cache` (GitHub-blob based, TTL 86400s), `ast_cache` (pickled AST trees, safe `RestrictedUnpickler`); `sandbox_cache` is an in-process dict.
+Key functions: `get_dashboard, increment_dashboard`, `upsert_user/repo`, `get_repos/get_scans`, `record_scan/record_finding`, `get_findings/update_finding_status`, `get_feedback_stats/records`, `resolve` helpers, `record_feedback`.
+
+---
+
+## ✅ Test Suite
+
+> `python -m pytest tests/ -x -q`
+
+20 test modules cover ~552 tests, incl.:
+
+| Module | Focus |
+|--------|-------|
+| `test_core.py` | 10 vuln types, AST metadata, severity |
+| `test_features_345.py` | Vuln types + sanitizers + parse diff |
+| `test_fixes_verification.py` | Fixer correctness, AST determinism |
+| `test_orchestrator.py` | Gating, silent-type exclusion, decision |
+| `test_patch_agent.py` / `test_patch_validator.py` | AST/import/policy/SSRF validation |
+| `test_policy.py`, `test_policy_engine*` | forbidden lists, sanitizers, wrappers, queries |
+| `test_risk*.py` | Average/max/max-risk, security score boundaries |
+| `test_reporter.py` | Comment format/truncation/bot-comment update |
+| `test_github.py` | JWT/OAuth install flow |
+| `test_sarif.py` | SARIF 2.1.0 generator |
+| `test_metrics.py` | Prometheus metrics/endpoints |
+| `test_gemini_cache.py`/`test_llm_patcher.py` | LLM caching, retry, fallback |
+| `test_ast_cache.py`, `test_cache` | Cache layer, restricted build |
+| `test_test_fetcher.py` | Test-discovery + dependency fetch |
+| `test_test_rebind.py` / `test_test_file_cache.py` | Import rebind, blob TTL cache |
+| `test_retry.py` | 429/backoff retry behaviour |
+| `test_webhook_e2e.py` | Webhook → pipeline status |
+| `conftest.py` | pytest fixtures, mock Gemini/Resolver |
+
+---
+
+## 🔌 API Endpoints (app/app.py)
+
+| Method | Route |
+|--------|-------|
+| POST | `/webhook` |
+| GET | `/api/health` , `/api/metrics/prometheus`, `/api/metrics/summary` |
+| GET | `/api/policy` |
+| GET | `/api/settings` (POST) |
+| GET | `/api/health/gemini`, `/api/health/db`, `/api/health/sandbox` |
+| GET | `/api/dashboard`, `/api/repos`, `/api/repos/<id>`, `/api/repos/<id>/scans`, `/api/repos/<id>/findings` |
+| GET | `/api/scans`, `/api/scans/<id>`, `/api/scans/<id>/findings` |
+| GET | `/api/findings` (filters/limit) |
+| POST | `/api/findings/<id>/status` (resolve/dismiss) |
+| POST | `/api/feedback`, `/feedback` |
+| GET | `/auth/login`, `/auth/callback`, `/auth/logout`, `/api/me` |
+| GET | `/dashboard`, `/` (SPA) |
+
+---
+
+## 🚀 Deployment
+
+### CI/CD (GitHub Actions — `.github/workflows/ci.yml`)
+- Python 3.13 on Ubuntu: `ruff` lint → `mypy` type-check → `pytest -q`
+- Node 20: `npm ci` + `npm run build` (Vite)
+
+### Serve
+`python app/app.py` — **waitress** on `0.0.0.0:8000` (configurable via `PORT`); SPA served by Flask. Docker optional for sandbox (docker image `ai-risk-guard:sandbox`, local fallback for dev).
+
+### Config files
+- `config/app.yaml` (server, webhook via `max_concurrent_analyses=3`, logging, sarif, llm fallback chain)
+- `config/risk.yaml` (weights, gating 8.5/4.0), `config/quality.yaml`, `config/policy/default.yaml`, `config/sandbox.yaml`
+
+---
+
+## 📈 System Metrics (Prometheus)
+`app/metrics.py` — counters/gauges/histograms:
+- `scan_total`, `scan_duration` (ms), `vulnerabilities_total`, `vulnerabilities_active`, `patches_total`, `APP_INFO`
+- Exposed at `/api/metrics/prometheus`
 
 ---
 
 ## 🔒 Security Considerations
 
-### Input Validation
-- ✅ HMAC-SHA256 webhook signature verification
-- ✅ GitHub API token scoping
-- ✅ Code sandbox isolation
-
-### Secret Management
-- ✅ Environment variable storage
-- ✅ No hardcoded credentials
-- ✅ Private key encryption
-
-### Code Execution Safety
-- ✅ Sandboxed execution (no file system access)
-- ✅ Memory limits
-- ✅ Timeout enforcement
-- ✅ Restricted Python builtins
+| Area | Measure |
+|------|---------|
+| Webhook auth | HMAC-SHA256 (`X-Hub-Signature-256`), dedup, sessions signed |
+| GitHub API | scoped installation tokens, JWT (RSA), refresh handling |
+| Sandbox | Docker (ro filesystem, no network, cap-drop, pids/memory/CPU/time limits), local fallback with `setrlimit` + `strip_secrets`, mock tests/time functions |
+| LLM | Prompt SHA-256 caching, sanitized prompt code (`strip_secrets` in env, redacts keys/IPs where applied) |
+| Policy | Centralized YAML guardrails: forbidden modules/functions, allowed sanitizers, SSRF wrappers, path traversal wrappers, parameterized queries |
+| Response | SARIF upload (only new findings), PR labels, bot-comment updates, Retry/backoff, tests separate risk gates |
+| Dashboards | OAuth-gated; CORS only when `FRONTEND_ORIGIN` set |
 
 ---
 
-## 📈 Scalability Plan
+## 📈 Scalability
 
-### Phase 1 (Current)
-- Single webhook server
-- Local file processing
-- SQLite database
-
-### Phase 2 (Post-Phase-1)
-- Load-balanced servers
-- Cache layer (Redis)
-- PostgreSQL database
-- Async task queue (Celery)
-
-### Phase 3 (Future)
-- Microservices architecture
-- ML pipeline (separate service)
-- Multi-language support
-- Enterprise SaaS features
+**Current**: Single waitress worker, ThreadPoolExecutor (3), SQLite (WAL journal, background write), in-proc + SQLite caches; minimal GitHub API usage (targeted, phase-based fetches).
+**Planned / Growing**: Postgres for live load, Redis caches, queue-based fan-out (Celery), metrics scaling, more output channels (SARIF → Jira, etc.), multi-repo telemetry.
 
 ---
 
-## 🧪 Testing Strategy
+## 🧠 Learning & Confidence
 
-### Unit Tests
-- Scanner: Test each vulnerability type detection
-- Patcher: Test each fix strategy
-- Validator: Test validation modes
-- Risk Engine: Test scoring calculations
-
-### Integration Tests
-- End-to-end scanning + patching workflow
-- Sandbox execution + error handling
-- Database operations
-- GitHub API interactions
-
-### Performance Tests
-- Large file handling (>1MB)
-- Many vulnerabilities (100+)
-- Concurrent webhook processing
-
-### Security Tests
-- Malicious code in sandbox
-- HMAC signature bypass attempts
-- Secret extraction attempts
+- `calculate_confidence` (in `confidence.py`): per-type `BASE_CONFIDENCE`, adjusted by validation success (+0.1 / −0.25), HIGH severity (+0.03), test results (docker +0.12 / local +0.06 / other +0.04), quality score (×0.08), patch-length penalties (+<10 → −0.1, >400 → −0.15), clamped to [0,1].
+- `ConfidenceLearningEngine` (in `learning_engine.py`): time-weighted decay (30-day half-life), minimum sample size (default 5), queries `get_feedback_stats/get_feedback_records` and adjusts by the ACCEPTED rate: ≥90% → +0.10, ≥75% → +0.05, ≤25% → −0.15, ≤40% → −0.05, else 0.0.
+- Feedback written on GitHub **rockets (🚀)**, `-1`/`+1` reactions, PR merges and SARIF dismissals are consumed by `record_feedback` on `/api/feedback` and the webhook.
 
 ---
 
-## 📚 Documentation Plan
+## 📚 Documentation
 
-### User Documentation
-- [ ] Installation guide (local + cloud)
-- [ ] Configuration reference
-- [ ] API documentation (Swagger/OpenAPI)
-- [ ] GitHub integration guide
+### User/Frontend
+- [x] Landing with GitHub OAuth
+- [x] Docs page (Getting Started, env ref, pipeline diagram, sandbox, policy, FAQ)
+- [x] Status page (live health)
+- [x] Pipeline page (visual 5-stage)
+- [x] Settings (profile, installs, scan_mode, sandbox network)
+- [x] README (setup, config, run, deployment link)
 
-### Technical Documentation
-- [ ] Architecture overview (this doc)
-- [ ] Component design documents
-- [ ] Database schema
-- [ ] Deployment guide
+### Technical
+- [x] Architecture overview (`ARCHITECTURE_OVERVIEW.md`)
+- [x] Component dependency map (`COMPONENT_DEPENDENCY_MAP.md`)
+- [x] Navigation map (`NAVIGATION.md`)
+- [x] Visual reference (`VISUAL_REFERENCE_GUIDE.md`)
+- [x] README (setup, config, run, deployment, env vars)
+- [ ] Deployment guide for heavy production (may be extended)
 
-### Demo Documentation
-- [ ] Walkthrough scenarios
-- [ ] Screenshot gallery
-- [ ] Video demo script
-- [ ] FAQ document
-
----
-
-## 🎓 Learning Outcomes
-
-**What This Project Teaches**:
-
-1. **Security**
-   - Vulnerability detection techniques
-   - Secure code generation
-   - Sandbox design patterns
-   - Cryptographic verification
-
-2. **Systems Design**
-   - Layered architecture
-   - Event-driven processing
-   - Real-time analytics
-   - Learning systems
-
-3. **Engineering**
-   - Code refactoring
-   - Testing strategies
-   - Performance optimization
-   - Deployment automation
-
-4. **Product Thinking**
-   - User workflows
-   - Iterative improvement
-   - Feedback loops
-   - Dashboard design
+### Dev Ops
+- [x] CI (pytest + ruff + mypy + frontend build)
+- [x] Docker sandbox image + local fallback
+- [ ] Multi-language support
+- [ ] Scale-out deployment, multi-tenant install subscriptions
 
 ---
 
-## 🎬 Success Story (Post-Phase 1)
+## 🎬 Success Story
 
-**Day 1**: 
-- Developer creates PR with unsafe `os.system()` call
-- Workflow triggers AI Risk Guard
+**Day 1**: Developer pushes a PR with `os.system(user_input)` + `pickle.loads(data)` + hardcoded `API_KEY`.
 
-**Moment of Magic**:
-1. System scans code (2 seconds)
-2. Finds vulnerability (99% confidence)
-3. Generates 3 patch candidates
-4. Validates in sandbox (all pass)
-5. Calculates risk: 7.8/10
-6. Posts detailed PR comment
-
-**Result**:
-- Developer sees exact fix
-- Applies patch
-- Re-submits PR
-- Green checkmark ✅
-- Fast merge
+1. Webhook → HMAC verify → repo upsert, thread scheduled.
+2. ScannerAgent finds 2 new vulns; PatchAgent builds AST baseline + Gemini patch.
+3. Validator runs Docker sandbox (RO, no network) + pytest test re-binding + re-scan.
+4. RiskAgent → 8-factor score (e.g. 7.8); PolicyEngine flags attempts (os.system, hardcoded secret) → gate REQUEST_CHANGES.
+5. Orchestrator posts PR comment, sets `security-risk-7` label, uploads SARIF case to Code Scanning.
+6. Dev applies fix; re-scan clean; auto-feedback via reaction updates confidence.
 
 ---
 
 ## 💰 Business Value
 
-### For Users
-- **Security**: Faster vulnerability discovery
-- **Developer Experience**: Automatic patch suggestions
-- **Learning**: Understands fixes (not just copy-paste)
-- **Time**: Reduces security review time by 50%
+### Users
+- Rapid detection of 10 vuln classes (fully automated scan)
+- Deterministic AST fixes plus LLM innovation with quality scoring
+- Clear decision context: PR-level risk flows, risk labels, SARIF in GitHub
+- PR comment includes exact patched code + validation summary
 
-### For Organizations
-- **Compliance**: Automated security gates
-- **Risk Management**: Multi-factor risk assessment
-- **Metrics**: Vulnerability trends + dashboards
-- **Culture**: Builds security-first mindset
-
-### For This Project
-- **Portfolio**: Top-tier security tool
-- **Impact**: Real-world applicable system
-- **Scalability**: Foundation for enterprise product
-- **Research**: Learning systems + feedback loops
+### Orgs
+- Enforced policy, risk-gate thresholds, GitHub Code Scanning results
+- Risk + quality + confidence + SARIF compliance reporting
+- Metrics and telemetry; no unsanctioned deviation from standards
 
 ---
 
-## 🏆 Differentiation Factors
+## 🏆 Differentiation
 
-**Why This Project Stands Out**:
-
-1. ✅ **End-to-End System** (not toy project)
-   - Scanner → Patcher → Validator → Risk → Reporting
-   - Integrated GitHub workflow
-
-2. ✅ **Learning Capability** (moves toward ML)
-   - Feedback loops
-   - Adaptive confidence
-   - Historical tracking
-
-3. ✅ **Production Features**
-   - Dashboard + metrics
-   - CI/CD integration
-   - Professional documentation
-
-4. ✅ **Research Elements**
-   - Multi-factor risk model
-   - Sandbox design
-   - Learning engine
-
-5. ✅ **Scalability** (not just MVP)
-   - Modular architecture
-   - Containerizable
-   - Cloud-deployment ready
+1. **Hybrid deterministic + LLM patching** with quality-aware candidate ranking.
+2. **Real hardened sandbox + test-program execution** (Docker/fallback; pytest in image).
+3. **YAML-driven enterprise policy engine** (SSRF urls, open wrappers, `shell=False`, forbidden lists, parameterized queries).
+4. **SARIF 2.1.0 → GitHub Code Scanning** with `skip_if_all_dismissed` reconciliation.
+5. **Operationally-observable** (Prometheus, system app page, health endpoints).
+6. **Threat-model-aware**: silent findings categorized, diff-gated positive reviews, learning engine, feedback loops.
 
 ---
 
-## 📋 Final Checklist (Phase 1 Complete)
+## 📋 Status Check
 
-### Must-Have
-- [ ] No critical bugs (SecurityRescanner fixed)
-- [ ] All unit tests passing
-- [ ] Clean code (no duplicates)
-- [ ] Professional documentation
-- [ ] GitHub integration working
+### ✅ Completed
+- 10 vulns + diff-aware scanning
+- AST + Gemini patch generation w/ quality tier
+- Hardened Docker + local sandbox, test execution
+- Full policy engine (YAML-driven)
+- 8-factor risk + gating
+- GitHub OAuth, webhook, comments, labels, SARIF
+- React SPA dashboard (Dark/Light, 3-pillar design system)
+- Agent mesh (manager + 5 agents), thread-safe per-file
+- 550+ tests, CI/CD workflow
+- SQLite schema + multiple caches + Prometheus metrics
 
-### Should-Have
-- [ ] Dashboard deployed
-- [ ] Feedback system working
-- [ ] Multi-factor risk active
-- [ ] GitHub Actions configured
+### ⚠️ Known limitations
+- Local (no-docker) fallback executes code with reduced isolation (still strip-secrets + timeouts/limits).
+- Docker best-effort only when binary present (`build_local_image` requires network/docker-socket).
+- SQLite single-node; concurrent write scaling may need Postgres/Redis.
+- `GEMINI_API_KEY` optional — falls back to AST-only patching if absent.
 
-### Nice-to-Have
-- [ ] Docker container
-- [ ] Performance optimized
-- [ ] Comprehensive demo
-- [ ] Video tutorial
+### 📝 Roadmap
+- Postgres + Redis, Celery/queue fan-out
+- Multi-language detection (JS/Java/Go), batched test running CI
+- Per-org policy UIs / multi-tenant enforcement
+- Signed-artifact replay proof (non-determinism / TEE sandbox)
+- SAST for additional ecosystems; GitHub-Check-Runs-driven block (e.g., required status checks)
 
 ---
 
 ## 🎯 Conclusion
 
-**AI Risk Guard** is positioned to be a **top-tier university project** that demonstrates:
-
-✅ **Technical Excellence**: Clean architecture, advanced patterns  
-✅ **Problem Solving**: Real-world security challenges  
-✅ **Product Thinking**: User experience + scalability  
-✅ **Research**: Learning systems + feedback loops  
-✅ **Execution**: Complete 45-day implementation plan  
-
-**The result**: A system that looks and acts like a **startup product**, not a student assignment.
-
+**AI Risk Guard** is a **production-ready autonomous security automation platform**: multi-agent mesh, hybrid deterministic+LLM patching, hardened sandbox with tests, YAML policy engine, SARIF Code Scanning integration, OAuth GitHub app, React dashboard design system, and 550+ tests in CI. It is a reliable, extensible security gate for modern Python teams.

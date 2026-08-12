@@ -1,0 +1,8 @@
+# AI Risk Guard - Patch Quality Scoring Configuration
+weights:
+  syntax_validity: 0.20
+  security_validation: 0.25
+  tests_passed: 0.20
+  complexity: -0.10
+  formatting_preserved: 0.10
+  confidence: 0.15

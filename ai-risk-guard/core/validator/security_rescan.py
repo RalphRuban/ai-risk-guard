@@ -3,15 +3,13 @@ Security re-scan engine.
 Ensures vulnerability was removed after patching.
 """
 
-import tempfile
 import os
+import tempfile
+
 from core.scanner.vulnerability_scanner import VulnerabilityScanner
 
 
 class SecurityRescanner:
-
-    def __init__(self):
-        self.scanner = VulnerabilityScanner()
 
     def rescan_code(self, code: str):
         temp_path = None
@@ -25,8 +23,12 @@ class SecurityRescanner:
                 temp.write(code)
                 temp_path = temp.name
 
-            # Perform the scan
-            vulnerabilities = self.scanner.scan_file(temp_path)
+            # Perform the scan. A fresh scanner per call keeps this class free
+            # of cross-call mutable state so concurrent rescan_code calls (the
+            # validator validates candidates in a thread pool) cannot corrupt
+            # one another's findings.
+            scanner = VulnerabilityScanner()
+            vulnerabilities = scanner.scan_file(temp_path)
 
             # If the scanner returns None or an empty list, 
             # we need to be careful. In Phase 2, an empty list 

@@ -1,0 +1,80 @@
+# AI Risk Guard - Application Configuration
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  workers: 4
+
+webhook:
+  max_concurrent_analyses: 3
+  analysis_timeout_seconds: 300
+  max_request_size_bytes: 5242880
+  ignored_dirs:
+    - ".venv"
+    - "venv"
+    - "node_modules"
+    - "migrations"
+    - "vendor"
+    - "__pycache__"
+    - "site-packages"
+
+logging:
+  level: "INFO"
+  format: "json"
+
+sarif:
+  upload_to_code_scanning: true
+  skip_if_all_dismissed: false
+  comment_on_pr: true
+  update_existing_comment: true
+
+github_app:
+  set_pr_labels: true
+
+checks:
+  create_check: true
+  name: "ai-risk-guard/validation"
+  # When false, failures are reported as neutral so the check never blocks merges.
+  gating: false
+
+codeql:
+  enabled: true
+  auto_provision: true
+  workflow_branch: "ai-risk-guard/codeql-setup"
+  pr_title: "Enable GitHub CodeQL analysis (via AI Risk Guard)"
+
+llm:
+  # Quality-ordered Gemini fallback chain (first available wins).
+  # As of Aug 2026 the 1.5/2.0/2.5 models are shut down or being retired
+  # (2.0 flash family Jun 2026, 2.5 flash Oct 2026), so we use the current
+  # GA 3.x line.
+  model_fallback_chain:
+    - "gemini-3.5-flash"
+    - "gemini-3.6-flash"
+    - "gemini-3.5-flash-lite"
+    - "gemini-3.1-flash-lite"
+
+feedback:
+  # Harvest 🚀/👎 reactions on bot PR comments via the Reactions REST API
+  # (there is no `reaction` webhook event for GitHub Apps).
+  enabled: true
+  poll_interval_seconds: 900
+  max_comments_per_cycle: 50
+
+triage:
+  # LLM confirmation of low-confidence detections. Only findings whose
+  # per-type detection_confidence is below min_detection_confidence are sent
+  # to Gemini. The default 0.95 triages the FP-prone 0.90 types (SQL, path
+  # traversal, SSRF, secrets) while skipping near-certain 0.95 rules.
+  enabled: true
+  min_detection_confidence: 0.95
+  max_findings_per_call: 8
+
+explainer:
+  # Context-aware "why this is a risk" text per finding (falls back to the
+  # static VULN_METADATA rationale when the LLM is unavailable).
+  enabled: true
+
+summary:
+  # One-line LLM summary at the top of the PR report (omitted on failure).
+  enabled: true
