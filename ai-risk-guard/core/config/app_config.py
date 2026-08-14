@@ -89,6 +89,26 @@ class SummaryConfig(BaseModel):
     enabled: bool = Field(True, description="Enable LLM-generated one-line PR summary in the report")
 
 
+class RegressionExplainConfig(BaseModel):
+    enabled: bool = Field(True, description="Enable LLM plain-language regression-test explanations in the PR report")
+    max_test_names_in_prompt: int = Field(20, description="Max test names included in the LLM prompt", ge=1)
+
+
+class ValidationConfig(BaseModel):
+    enabled: bool = Field(True, description="Enable deferred re-validation: re-run scans whose sandbox validation failed closed once Docker is available again")
+    poll_interval_seconds: int = Field(60, description="How often the background worker checks for pending scans and Docker availability", ge=10)
+    max_revalidations_per_cycle: int = Field(3, description="Max scans re-triggered per worker cycle", ge=1, le=20)
+
+
+class CIRunnerConfig(BaseModel):
+    enabled: bool = Field(True, description="Enable GitHub Actions fallback validation: when Docker is unavailable locally, candidates are validated on a hosted runner via repository_dispatch")
+    workflow_repo: str = Field("", description="Repo hosting the ai-risk-guard-validate workflow (owner/name). Empty falls back to the GITHUB_REPOSITORY env var, then skips")
+    event_type: str = Field("ai-risk-guard-validate", description="repository_dispatch event type the validation workflow listens for")
+    base_url: str = Field("", description="Public base URL the runner uses to fetch jobs and post results. Falls back to the CI_VALIDATION_BASE_URL env var")
+    secret_env: str = Field("CI_VALIDATION_SECRET", description="Env var holding the shared secret used to authenticate runner <-> app calls")
+    token_env: str = Field("CI_VALIDATION_TOKEN", description="Env var holding a GitHub token allowed to dispatch repository_dispatch to workflow_repo")
+
+
 class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)  # type: ignore[arg-type]
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)  # type: ignore[arg-type]
@@ -102,3 +122,6 @@ class AppConfig(BaseModel):
     triage: TriageConfig = Field(default_factory=TriageConfig)  # type: ignore[arg-type]
     explainer: ExplainerConfig = Field(default_factory=ExplainerConfig)  # type: ignore[arg-type]
     summary: SummaryConfig = Field(default_factory=SummaryConfig)  # type: ignore[arg-type]
+    regression_explain: RegressionExplainConfig = Field(default_factory=RegressionExplainConfig)  # type: ignore[arg-type]
+    validation: ValidationConfig = Field(default_factory=ValidationConfig)  # type: ignore[arg-type]
+    ci_runner: CIRunnerConfig = Field(default_factory=CIRunnerConfig)  # type: ignore[arg-type]

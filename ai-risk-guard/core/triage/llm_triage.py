@@ -17,7 +17,7 @@ import re
 from core.config import config
 from core.llm.gemini_client import GeminiClient
 from core.metadata.vuln_metadata import SILENT_TYPES
-from core.reporting.summary import DETECTION_CONFIDENCE
+from core.reporting.summary import DETECTION_CONFIDENCE, parse_test_summary
 from utils.logger import logger
 
 _VERDICT_RE = re.compile(
@@ -215,6 +215,91 @@ Findings:
 {chr(10).join(lines)}
 
 Reply with only the single sentence, no preamble, no markdown.
+"""
+        response = self.client.cached_generate(prompt)
+        if not response:
+            return None
+        text = response.strip()
+        return text or None
+
+    # ------------------------------------------------------------------
+    # Regression-test explanation
+    # ------------------------------------------------------------------
+
+    def explain_regression_tests(self, test_results: dict) -> str | None:
+        """Return a short plain-language explanation of the regression results.
+
+        Called by the PR reporter so the technical ``ℹ️`` block (test counts,
+        pinned test names, mocked env vars, rebind info) shown on every finding
+        of a file can be replaced with one readable paragraph.
+
+        Fails open: returns ``None`` when disabled, when Gemini is unavailable,
+        or when the payload has nothing meaningful to explain — callers then
+        render the deterministic block verbatim.
+        """
+        if not config.app.regression_explain.enabled or not self.enabled or not test_results:
+            return None
+
+        summary = parse_test_summary(test_results.get("output", ""))
+        expected_failures = test_results.get("expected_failures") or []
+        regression_failures = test_results.get("regression_failures") or []
+        mocked_env = test_results.get("mocked_env_vars") or []
+        rebind = (test_results.get("rebind") or {}).get("rebound_map") or {}
+        skipped = test_results.get("skipped") is True
+        success = test_results.get("success") is True
+        mode = test_results.get("mode") or "unknown"
+
+        meaningful = bool(summary or expected_failures or regression_failures or mocked_env or rebind)
+        if not meaningful:
+            return None
+
+        max_names = config.app.regression_explain.max_test_names_in_prompt
+
+        def _clip(names: list) -> str:
+            names = list(names)[:max_names]
+            text = ", ".join(names)
+            if len(names) >= max_names:
+                text += ", ..."
+            return text
+
+        facts = [
+            f"- Outcome: {'passed' if success else ('skipped' if skipped else 'failed')} (mode: {mode})",
+        ]
+        if summary:
+            facts.append(f"- Counts: {summary['passed']} passed, {summary['failed']} failed, {summary['skipped']} skipped")
+        if expected_failures:
+            facts.append(f"- Expected failures (pin removed vulnerabilities): {_clip(expected_failures)}")
+        if regression_failures:
+            facts.append(f"- Unexpected regression failures: {_clip(regression_failures)}")
+        if mocked_env:
+            facts.append(f"- Sandbox mocked env vars: {', '.join(mocked_env)}")
+        if rebind:
+            mapping = ", ".join(f"{k} -> {v}" for k, v in rebind.items())
+            facts.append(f"- Test imports rebound to the patched module: {mapping}")
+
+        prompt = f"""
+You are a security tool explaining automated regression-test results to a
+developer reviewing a pull request. A sandbox ran the project's tests against
+an auto-generated security patch.
+
+The facts below are technical. Write a SHORT, readable explanation in 2-4
+sentences, in plain developer language, with NO markdown, NO bullet lists, and
+no preamble such as "Here is".
+
+Rules:
+- A developer must instantly understand whether the fix is safe and whether the
+  tests prove it.
+- Failing tests listed as "Expected failures (pin removed vulnerabilities)" are
+  GOOD: they fail because the patch removed the vulnerability they asserted.
+  Say this clearly and reassuringly.
+- "Unexpected regression failures" are BAD: call them out explicitly.
+- Sandbox mocked env vars just mean the test environment substituted secrets
+  with dummy values; mention them only when the results depend on them.
+- Test-import rebinding means the tests were pointed at the patched module.
+- Never claim tests passed when they were skipped or did not run.
+
+Facts:
+{chr(10).join(facts)}
 """
         response = self.client.cached_generate(prompt)
         if not response:

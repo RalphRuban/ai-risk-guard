@@ -1,0 +1,1 @@
+"""CI-runner fallback validation (Phase E)."""

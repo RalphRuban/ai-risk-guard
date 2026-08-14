@@ -16,7 +16,12 @@ from core.cache.sandbox_cache import SandboxCache
 from core.config import config
 from core.exceptions import InputValidationError
 from core.utils.tempdir import TempDir
-from core.utils.validation import safe_filename, validate_code_input, validate_file_path
+from core.utils.validation import (
+    safe_filename,
+    safe_repo_path,
+    validate_code_input,
+    validate_file_path,
+)
 from core.validator.test_rebind import rebind_test_imports
 from utils.logger import logger
 
@@ -137,6 +142,12 @@ def contains_unsafe_pattern(code: str):
                             return True
                 if isinstance(node.func, ast.Name) and node.func.id in ("eval", "exec", "__import__") and not _is_in_pytest_raises(node, parents):
                     return True
+                # builtins.eval / builtins.exec / builtins.__import__ and the
+                # __builtins__ alias — must be blocked (no pytest.raises escape).
+                if isinstance(node.func, ast.Attribute):
+                    _bv = node.func.value
+                    if isinstance(_bv, ast.Name) and _bv.id in ("builtins", "__builtins__") and node.func.attr in ("eval", "exec", "__import__"):
+                        return True
                 if isinstance(node.func, ast.Name) and node.func.id == "getattr" and not _is_in_pytest_raises(node, parents) and len(node.args) >= 2:
                     target = node.args[0]
                     attr = node.args[1]
@@ -149,6 +160,8 @@ def contains_unsafe_pattern(code: str):
                                 return True
                             if resolved == "pickle" and attr.value == "loads":
                                 return True
+                            if resolved in ("builtins", "__builtins__") and attr.value in ("eval", "exec", "__import__"):
+                                return True
                 if isinstance(node.func, ast.Name) and node.func.id == "compile":
                     # compile(source, ...) with mode='exec' or mode='eval'
                     raw_modes = [getattr(kw.value, "value", None) for kw in node.keywords if kw.arg == "mode"]
@@ -158,6 +171,10 @@ def contains_unsafe_pattern(code: str):
                 if any(_resolve_name(aliases, alias.name) == "ctypes" for alias in node.names):
                     return True
             elif isinstance(node, ast.ImportFrom):
+                if node.module in ("builtins", "__builtins__") and any(
+                    alias.name in ("eval", "exec", "__import__", "*") for alias in node.names
+                ):
+                    return True
                 if node.module == "ctypes":
                     return True
         return False
@@ -167,93 +184,6 @@ def contains_unsafe_pattern(code: str):
     except Exception:
         stripped = re.sub(r"#.*$", "", code, flags=re.MULTILINE)
         return any(re.search(pattern, stripped) for pattern in BLOCKED_PATTERNS)
-
-
-def _win32_capped_run(cmd, env, timeout, mem_bytes, cwd=None):
-    """Run a command on Windows under a Job Object that caps committed memory.
-
-    Returns a ``subprocess.CompletedProcess`` on success, or ``None`` if the job
-    cannot be created/assigned so callers can transparently fall back to a plain
-    subprocess.run with the existing wall-clock timeout. ``resource.setrlimit``
-    is a no-op on Windows, so this is the only way to enforce a memory ceiling.
-    """
-    if mem_bytes <= 0 or sys.platform != "win32":
-        return None
-    proc = None
-    job = None
-    kernel32 = None
-    try:
-        import ctypes
-
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
-
-        class _IO_COUNTERS(ctypes.Structure):
-            _fields_ = [
-                ("ReadOperationCount", ctypes.c_ulonglong),
-                ("WriteOperationCount", ctypes.c_ulonglong),
-                ("OtherOperationCount", ctypes.c_ulonglong),
-                ("ReadTransferCount", ctypes.c_ulonglong),
-                ("WriteTransferCount", ctypes.c_ulonglong),
-                ("OtherTransferCount", ctypes.c_ulonglong),
-            ]
-
-        class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
-            _fields_ = [
-                ("PerProcessUserTimeLimit", ctypes.c_longlong),
-                ("PerJobUserTimeLimit", ctypes.c_longlong),
-                ("LimitFlags", ctypes.c_uint32),
-                ("MinimumWorkingSetSize", ctypes.c_size_t),
-                ("MaximumWorkingSetSize", ctypes.c_size_t),
-                ("ActiveProcessLimit", ctypes.c_uint32),
-                ("Affinity", ctypes.c_size_t),
-                ("PriorityClass", ctypes.c_uint32),
-                ("SchedulingClass", ctypes.c_uint32),
-                ("IoInfo", _IO_COUNTERS),
-                ("ProcessMemoryLimit", ctypes.c_size_t),
-                ("JobMemoryLimit", ctypes.c_size_t),
-                ("PeakProcessMemoryUsed", ctypes.c_size_t),
-                ("PeakJobMemoryUsed", ctypes.c_size_t),
-            ]
-
-        job = kernel32.CreateJobObjectW(None, None)
-        if not job:
-            return None
-        info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-        info.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY
-        info.ProcessMemoryLimit = mem_bytes
-        if not kernel32.SetInformationJobObject(
-            job, 9, ctypes.byref(info), ctypes.sizeof(info)
-        ):
-            return None
-
-        proc = subprocess.Popen(
-            cmd, env=env, cwd=cwd, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
-        if not kernel32.AssignProcessToJobObject(job, int(proc._handle)):
-            return None
-        try:
-            out, err = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            if proc.poll() is None:
-                proc.kill()
-                proc.communicate()
-            raise
-        return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
-    except Exception:
-        if proc is not None and proc.poll() is None:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        return None
-    finally:
-        if job and kernel32 is not None:
-            try:
-                kernel32.CloseHandle(job)
-            except Exception:
-                pass
 
 
 class Sandbox:
@@ -272,46 +202,6 @@ class Sandbox:
         self._orphans_cleaned = False
         self._sandbox_cache = SandboxCache()
 
-    @staticmethod
-    def _build_clean_env() -> dict:
-        """Build a minimal environment for local subprocess, stripping secrets."""
-        clean = {
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ.get("HOME", os.environ.get("USERPROFILE", "")),
-            "TMPDIR": os.environ.get("TMPDIR", os.environ.get("TEMP", os.environ.get("TMP", ""))),
-            "PYTHONDONTWRITEBYTECODE": "1",
-        }
-        if sys.platform == "win32":
-            clean["SystemRoot"] = os.environ.get("SystemRoot", r"C:\Windows")
-            clean["ComSpec"] = os.environ.get("ComSpec", r"C:\Windows\system32\cmd.exe")
-        if config.sandbox.local.strip_secrets:
-            for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
-                clean.pop(k, None)
-        return clean
-
-    @staticmethod
-    def _set_resource_limits():
-        """Apply resource limits to the current process (Linux only, call via preexec_fn)."""
-        if sys.platform == "win32":
-            return
-        lc = config.sandbox.local
-        try:
-            import resource
-            if lc.memory_limit_mb > 0:
-                resource.setrlimit(resource.RLIMIT_AS, (lc.memory_limit_mb * 1024 * 1024) * 2)
-            if lc.cpu_time_seconds > 0:
-                resource.setrlimit(resource.RLIMIT_CPU, (lc.cpu_time_seconds, lc.cpu_time_seconds))
-            if lc.max_processes > 0:
-                resource.setrlimit(resource.RLIMIT_NPROC, (lc.max_processes, lc.max_processes))
-            if lc.max_file_bytes > 0:
-                resource.setrlimit(resource.RLIMIT_FSIZE, (lc.max_file_bytes, lc.max_file_bytes))
-        except (ImportError, ValueError, OSError):
-            pass
-
-    def _preexec_fn(self):
-        """Callable for subprocess preexec_fn — applies resource limits if possible."""
-        self._set_resource_limits()
-
     def _is_docker_available(self) -> bool:
         """Check if Docker is available on this system (cached)."""
         if self._docker_available is not None:
@@ -329,14 +219,38 @@ class Sandbox:
             self._docker_available = False
         return self._docker_available
 
-    def _truncate_output(self, result: dict, max_bytes: int | None = None) -> dict:
-        """Truncate stdout/stderr in a result dict to prevent memory exhaustion."""
-        if max_bytes is None:
-            max_bytes = config.sandbox.docker.max_output_bytes
-        for key in ("output", "error"):
-            if isinstance(result.get(key), str) and len(result[key]) > max_bytes:
-                result[key] = result[key][:max_bytes] + f"\n... (truncated at {max_bytes} bytes)"
-        return result
+    def _ready_for_execution(self, purpose: str) -> tuple[bool, str | None]:
+        """Check Docker + image readiness with bounded retries.
+
+        Returns ``(ready, reason)`` where ``reason`` is ``None`` when ready,
+        otherwise ``"daemon"`` or ``"image"``. Retries cover transient daemon
+        restarts (and a daemon that comes up mid-provisioning) so a brief Docker
+        outage does not immediately fail a scan closed. Still fails closed when
+        Docker or the image cannot be made available.
+        """
+        attempts = config.sandbox.docker.retry_attempts
+        backoff = config.sandbox.docker.retry_backoff_seconds
+        for attempt in range(attempts + 1):
+            if self._is_docker_available() and self._docker_image_ready():
+                self._record_sandbox_availability(True)
+                return True, None
+            if attempt < attempts:
+                # Clear cached state so the next attempt re-probes the daemon
+                # and re-attempts image provisioning.
+                self._docker_available = None
+                self._image_verified = False
+                self.image_unavailable = False
+                delay = backoff * (2 ** attempt)
+                logger.warning(
+                    f"Sandbox {purpose}: not ready (attempt {attempt + 1}/{attempts + 1}) — retrying in {delay}s",
+                    "SANDBOX",
+                )
+                time.sleep(delay)
+        if self._is_docker_available():
+            self._record_sandbox_availability(False, "image")
+            return False, "image"
+        self._record_sandbox_availability(False, "daemon")
+        return False, "daemon"
 
     def _force_kill_container(self, container_name: str):
         """Attempt to force-remove a Docker container with retry + kill escalation."""
@@ -405,7 +319,7 @@ class Sandbox:
                 self.image_unavailable = True
                 logger.warning(
                     f"Docker image '{image}' could not be provisioned — "
-                    "falling back to local execution",
+                    "sandbox scans will fail closed until it is available",
                     "SANDBOX"
                 )
         except Exception as e:
@@ -439,7 +353,12 @@ class Sandbox:
                 "SANDBOX"
             )
             return False
+        # Resolve the Dockerfile (and the build context) against the repo root so
+        # the build works no matter which working directory the app runs from.
+        repo_root = Path(__file__).resolve().parents[2]
         dockerfile = config.sandbox.docker.dockerfile
+        if dockerfile and not os.path.isabs(dockerfile):
+            dockerfile = str(repo_root / dockerfile)
         if not dockerfile or not os.path.exists(dockerfile):
             logger.warning(
                 f"Cannot build local image '{image}': dockerfile '{dockerfile}' not found",
@@ -451,7 +370,7 @@ class Sandbox:
             "SANDBOX"
         )
         build = subprocess.run(
-            ["docker", "build", "-f", dockerfile, "-t", image, "."],
+            ["docker", "build", "-f", dockerfile, "-t", image, str(repo_root)],
             capture_output=True, timeout=600,
         )
         if build.returncode == 0:
@@ -514,6 +433,84 @@ class Sandbox:
         except Exception:
             pass
 
+    @staticmethod
+    def _record_sandbox_availability(available: bool, reason: str = ""):
+        """Record sandbox availability + fail-closed events (best-effort)."""
+        try:
+            from app.metrics import sandbox_available, sandbox_fail_closed_total
+            sandbox_available.set(1 if available else 0)
+            if not available:
+                sandbox_fail_closed_total.labels(reason=reason or "unknown").inc()
+        except Exception:
+            pass
+
+    def _run_captured(self, cmd: list, timeout: int, max_bytes: int) -> subprocess.CompletedProcess:
+        """Run a command, streaming stdout/stderr with a hard per-stream cap.
+
+        Unlike ``subprocess.run(capture_output=True)`` this never buffers the
+        full output in host memory, so a chatty container cannot exhaust the
+        webhook process. The wall-clock timeout is still enforced.
+        """
+        import threading as _threading
+
+        def _read_capped(stream, sink, marker_ref):
+            n = 0
+            truncated = False
+            try:
+                for line in iter(stream.readline, ""):
+                    if n < max_bytes:
+                        take = min(len(line), max_bytes - n)
+                        sink.append(line[:take])
+                        n += take
+                    else:
+                        truncated = True
+            except Exception:
+                pass
+            finally:
+                marker_ref["truncated"] = truncated
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1,
+        )
+        out_buf: list = []
+        err_buf: list = []
+        out_marker: dict = {"truncated": False}
+        err_marker: dict = {"truncated": False}
+        t_out = _threading.Thread(target=_read_capped, args=(proc.stdout, out_buf, out_marker), daemon=True)
+        t_err = _threading.Thread(target=_read_capped, args=(proc.stderr, err_buf, err_marker), daemon=True)
+        t_out.start()
+        t_err.start()
+        try:
+            returncode = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            t_out.join(timeout=5)
+            t_err.join(timeout=5)
+            raise
+        finally:
+            t_out.join(timeout=5)
+            t_err.join(timeout=5)
+
+        stdout = "".join(out_buf)
+        stderr = "".join(err_buf)
+        if out_marker["truncated"]:
+            stdout += f"\n... (truncated at {max_bytes} bytes)"
+        if err_marker["truncated"]:
+            stderr += f"\n... (truncated at {max_bytes} bytes)"
+        return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+
     def _do_docker_run(self, cmd: list, container_name: str, mode: str = "secure_validation", track_exit_code: bool = False, timeout: int | None = None, max_output_bytes: int | None = None) -> dict:
         """Execute a Docker command and handle common timeout/cleanup/truncation."""
         import time as _time
@@ -521,9 +518,10 @@ class Sandbox:
         mode_label = "docker_test" if mode == "docker" else "docker_run"
         dc = config.sandbox.docker
         run_timeout = timeout or dc.timeout_seconds
+        cap_bytes = max_output_bytes or dc.max_output_bytes
         # Report the network mode actually baked into the docker command (may
-        # differ from the config default when a per-scan/network override or a
-        # forced bridge for dependency installs is in effect).
+        # differ from the config default when a per-scan/network override is in
+        # effect).
         effective_network = next(
             (arg.partition("=")[2] for arg in cmd if arg.startswith("--network=")),
             dc.network,
@@ -539,9 +537,7 @@ class Sandbox:
             self._orphans_cleaned = True
         self._ensure_image_available()
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, timeout=run_timeout, text=True,
-            )
+            result = self._run_captured(cmd, run_timeout, cap_bytes)
             success = result.returncode == 0
             response = {"success": success, "output": result.stdout, "error": result.stderr, "mode": mode}
             if track_exit_code:
@@ -552,9 +548,7 @@ class Sandbox:
                 response["success"] = True
                 response["note"] = "cli_arguments_required"
             self._track_sandbox_metrics(mode_label, bool(response["success"]), _time.time() - start)
-            if max_output_bytes is not None:
-                return self._truncate_output(response, max_bytes=max_output_bytes)
-            return self._truncate_output(response)
+            return response
         except subprocess.TimeoutExpired:
             self._force_kill_container(container_name)
             self._track_sandbox_metrics(mode_label, False, _time.time() - start)
@@ -568,7 +562,7 @@ class Sandbox:
         """Return a safe path for test files preserving subdirectory structure."""
         if os.path.isabs(test_file_path):
             return safe_filename(test_file_path)
-        return test_file_path.replace(os.sep, "/")
+        return validate_file_path(test_file_path).replace(os.sep, "/")
     
     def _build_docker_cmd(self, container_name: str, mount_path: str, entry_point: list, network: str | None = None, read_only: bool | None = None) -> list:
         dc = config.sandbox.docker
@@ -703,244 +697,9 @@ class Sandbox:
             "missing": missing,
         }
 
-    def _run_local_command(self, cmd, env, timeout, cwd=None):
-        """Run ``cmd`` under the configured resource limits.
-
-        Linux uses ``preexec_fn`` + ``resource.setrlimit``; Windows enforces a
-        committed-memory ceiling via a Job Object (resource limits are a no-op
-        there). Either path preserves a hard wall-clock ``timeout``.
-        """
-        if sys.platform != "win32":
-            return subprocess.run(
-                cmd, capture_output=True, timeout=timeout, text=True,
-                env=env, preexec_fn=self._preexec_fn, cwd=cwd,
-            )
-        mem_bytes = config.sandbox.local.memory_limit_mb * 1024 * 1024
-        capped = _win32_capped_run(cmd, env, timeout, mem_bytes, cwd=cwd)
-        if capped is not None:
-            return capped
-        return subprocess.run(
-            cmd, capture_output=True, timeout=timeout, text=True, env=env, cwd=cwd
-        )
-
-    def _run_local(self, code: str, mode: str = "secure_validation", test_file_path: str | None = None, source_filename: str | None = None):
-        """Run code directly via local Python as fallback when Docker is unavailable."""
-        import time as _time
-        start = _time.time()
-        try:
-            validate_code_input(code)
-
-            if contains_unsafe_pattern(code):
-                self._track_sandbox_metrics("local_run", False, _time.time() - start)
-                return {"success": False, "error": "Unsafe pattern detected"}
-
-            script_name = source_filename or "script.py"
-            with TempDir(prefix="airisk_sandbox_") as temp_dir:
-                file_path = os.path.join(temp_dir, script_name)
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                with open(file_path, "w", encoding="utf-8") as f:
-                    self._write_mock_header(f, source_filename=script_name)
-                    f.write(code)
-
-                if test_file_path:
-                    validate_file_path(test_file_path, allow_absolute=True)
-                    if os.path.exists(test_file_path):
-                        safe_name = self._safe_test_path(test_file_path)
-                        target_path = os.path.join(temp_dir, safe_name)
-                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                        with open(test_file_path, "r", encoding="utf-8", errors="ignore") as tf:
-                            test_content = tf.read()
-                        with open(target_path, "w", encoding="utf-8") as tf:
-                            tf.write(test_content)
-
-                cmd = [sys.executable, file_path]
-
-                try:
-                    result = self._run_local_command(
-                        cmd, env=self._build_clean_env(),
-                        timeout=config.sandbox.local.timeout_seconds,
-                    )
-                    success = result.returncode == 0 and "Traceback" not in result.stderr
-                    note = None
-                    if not success and self._cli_arguments_only(result):
-                        success = True
-                        note = "cli_arguments_required"
-                    resp = self._truncate_output({
-                        "success": success,
-                        "output": result.stdout,
-                        "error": result.stderr,
-                        "mode": f"{mode}_local",
-                        **({"note": note} if note else {}),
-                    }, max_bytes=config.sandbox.local.max_output_bytes)
-                    self._track_sandbox_metrics("local_run", success, _time.time() - start)
-                    return resp
-                except subprocess.TimeoutExpired:
-                    self._track_sandbox_metrics("local_run", False, _time.time() - start)
-                    return {"success": False, "error": "Sandbox timeout (local)"}
-
-        except InputValidationError as e:
-            self._track_sandbox_metrics("local_run", False, _time.time() - start)
-            return {"success": False, "error": f"Input validation error: {e}"}
-        except Exception as e:
-            logger.error(f"Local sandbox error: {e}", "SANDBOX")
-            self._track_sandbox_metrics("local_run", False, _time.time() - start)
-            return {"success": False, "error": f"Local sandbox error: {e}"}
-
-    def _is_pytest_available(self) -> bool:
-        """Check if pytest is available in the current Python environment."""
-        try:
-            import importlib.util
-            return importlib.util.find_spec("pytest") is not None
-        except ImportError:
-            return False
-
-    @staticmethod
-    def _count_test_functions(test_content: str) -> int:
-        """Count the number of test_* functions in a test file via AST."""
-        try:
-            tree = ast.parse(test_content)
-            return sum(1 for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"))
-        except SyntaxError:
-            return 0
-
-    def _run_local_tests(self, test_file_path: str, source_code: str | None = None, source_filename: str | None = None, extra_files: list | None = None) -> dict:
-        """Run pytest locally as fallback when Docker is unavailable."""
-        import time as _time
-        start = _time.time()
-        lc = config.sandbox.local
-        try:
-            validate_file_path(test_file_path, allow_absolute=True)
-            if not os.path.exists(test_file_path):
-                self._track_sandbox_metrics("local_test", False, _time.time() - start)
-                return {"success": False, "error": "Test file not found"}
-
-            with open(test_file_path, "r", encoding="utf-8", errors="ignore") as f:
-                test_content = f.read()
-
-            validate_code_input(test_content)
-
-            if contains_unsafe_pattern(test_content):
-                self._track_sandbox_metrics("local_test", False, _time.time() - start)
-                return {"success": False, "error": "Unsafe pattern detected in test"}
-
-            if not self._is_pytest_available():
-                logger.warning("pytest is not available in local environment — tests will be skipped", "SANDBOX")
-                self._track_sandbox_metrics("local_test", False, _time.time() - start)
-                return {"success": False, "skipped": True, "error": "pytest not available (local fallback)", "mode": "local"}
-
-            safe_name = self._safe_test_path(test_file_path)
-
-            with TempDir(prefix="airisk_tests_") as temp_dir:
-                if source_code and source_filename:
-                    src_path = os.path.join(temp_dir, source_filename)
-                    with open(src_path, "w", encoding="utf-8") as f:
-                        self._write_mock_header(f, source_filename=source_filename)
-                        f.write(source_code)
-
-                target_path = os.path.join(temp_dir, safe_name)
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                with open(target_path, "w", encoding="utf-8") as f:
-                    f.write(test_content)
-
-                init_paths = [target_path]
-                if source_code and source_filename:
-                    init_paths.append(src_path)
-                init_paths.extend(self._stage_extra_files(temp_dir, extra_files))
-                for fpath in init_paths:
-                    d = os.path.dirname(fpath)
-                    while d and d != temp_dir:
-                        init = os.path.join(d, "__init__.py")
-                        if not os.path.exists(init):
-                            Path(init).touch()
-                        d = os.path.dirname(d)
-
-                resolution = self._resolve_test_dependencies(temp_dir, test_content, source_code, source_filename)
-                test_content = resolution["test_content"]
-                rebind_info = resolution["rebind_info"]
-                missing = resolution["missing"]
-                if rebind_info.get("skip"):
-                    self._track_sandbox_metrics("local_test", False, _time.time() - start)
-                    return {
-                        "success": False,
-                        "skipped": True,
-                        "mode": "local",
-                        "error": rebind_info.get("reason") or "unresolvable test imports",
-                        "rebind": rebind_info,
-                    }
-                if not rebind_info.get("skip"):
-                    with open(target_path, "w", encoding="utf-8") as f:
-                        f.write(test_content)
-
-                if missing:
-                    preexec = self._preexec_fn if sys.platform != "win32" else None
-                    pip_cmd = [sys.executable, "-m", "pip", "install", "--no-deps", "--no-build-isolation", "--user"] + list(missing)
-                    try:
-                        pip_result = subprocess.run(
-                            pip_cmd, capture_output=True, timeout=30, text=True,
-                            env=self._build_clean_env(), preexec_fn=preexec,
-                        )
-                        if pip_result.returncode != 0:
-                            logger.warning(
-                                f"Dependency install failed for {', '.join(sorted(missing))} — continuing to pytest: {pip_result.stderr[:500]}",
-                                "SANDBOX"
-                            )
-                    except subprocess.TimeoutExpired:
-                        logger.warning(
-                            f"Dependency install timed out for {', '.join(sorted(missing))} — continuing to pytest",
-                            "SANDBOX"
-                        )
-
-                cmd = [sys.executable, "-m", "pytest", target_path, "-v"]
-                try:
-                    result = self._run_local_command(
-                        cmd, env=self._build_clean_env(),
-                        timeout=lc.test_timeout_seconds,
-                        cwd=temp_dir,
-                    )
-                    success = result.returncode == 0
-
-                    test_count = self._count_test_functions(test_content)
-                    if test_count > 0 and success:
-                        combined_output = (result.stdout + result.stderr).lower()
-                        has_output = any(
-                            indicator in combined_output
-                            for indicator in ["passed", "failed", "error", "test_"]
-                        )
-                        if not has_output:
-                            logger.warning(
-                                f"pytest returned exit code 0 but no test output detected "
-                                f"({test_count} test functions found in file) — tests may not have actually executed",
-                                "SANDBOX"
-                            )
-
-                    resp = self._truncate_output({
-                        "success": success,
-                        "output": result.stdout,
-                        "error": result.stderr,
-                        "exit_code": result.returncode,
-                        "mode": "local",
-                    }, max_bytes=lc.test_max_output_bytes)
-                    if rebind_info.get("rebound"):
-                        resp["rebind"] = rebind_info
-                    from sandbox.mock_header import MOCKED_ENV_VARS
-                    resp["mocked_env_vars"] = list(MOCKED_ENV_VARS)
-                    self._track_sandbox_metrics("local_test", success, _time.time() - start)
-                    return resp
-                except subprocess.TimeoutExpired:
-                    self._track_sandbox_metrics("local_test", False, _time.time() - start)
-                    return {"success": False, "error": "Test timeout (local)"}
-
-        except InputValidationError as e:
-            self._track_sandbox_metrics("local_test", False, _time.time() - start)
-            return {"success": False, "error": f"Input validation error: {e}"}
-        except Exception as e:
-            logger.error(f"Local run_tests error: {e}", "SANDBOX")
-            self._track_sandbox_metrics("local_test", False, _time.time() - start)
-            return {"success": False, "error": f"Local run_tests error: {e}"}
-
-    def _write_mock_header(self, file, source_filename: str = "script.py"):
+    def _write_mock_header(self, file):
         from sandbox.mock_header import build_mock_header
-        file.write(build_mock_header(source_filename))
+        file.write(build_mock_header())
 
     def run(
         self,
@@ -954,17 +713,15 @@ class Sandbox:
         container_name = f"sandbox_{uuid.uuid4().hex[:8]}"
         cache_variant = f"{network or ''}|{scan_mode or ''}"
 
-        # Fall back to local execution if Docker is not available
-        if not self._is_docker_available():
-            logger.info("Sandbox: Docker unavailable, falling back to local execution", "SANDBOX")
-            return self._run_local(code, mode, test_file_path, source_filename)
-
-        # Fall back to local execution if the sandbox image cannot be provisioned
-        if not self._docker_image_ready():
-            logger.warning("Sandbox: image unavailable, falling back to local execution", "SANDBOX")
-            result = self._run_local(code, mode, test_file_path, source_filename)
-            result["image_unavailable"] = True
-            return result
+        # Fail closed when Docker or the image is unavailable — never execute
+        # untrusted PR code on the host. Retries cover transient daemon restarts.
+        ready, reason = self._ready_for_execution("run")
+        if not ready:
+            if reason == "image":
+                logger.warning("Sandbox: image unavailable — refusing to run untrusted code on host", "SANDBOX")
+                return {"success": False, "error": "Sandbox unavailable (image not provisioned)", "image_unavailable": True, "mode": "unavailable"}
+            logger.error("Sandbox: Docker unavailable — refusing to run untrusted code on host", "SANDBOX")
+            return {"success": False, "error": "Sandbox unavailable (Docker required)", "image_unavailable": True, "mode": "unavailable"}
 
         try:
             validate_code_input(code)
@@ -986,10 +743,10 @@ class Sandbox:
                 return cached
 
             with TempDir(prefix="airisk_sandbox_") as temp_dir:
-                file_path = os.path.join(temp_dir, script_name)
+                file_path = safe_repo_path(temp_dir, script_name)
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 with open(file_path, "w", encoding="utf-8") as f:
-                    self._write_mock_header(f, source_filename=script_name)
+                    self._write_mock_header(f)
                     f.write(code)
 
                 if test_content and test_file_path:
@@ -1019,15 +776,13 @@ class Sandbox:
         container_name = f"test_{uuid.uuid4().hex[:8]}"
         cache_variant = f"{network or ''}|{scan_mode or ''}"
 
-        if not self._is_docker_available():
-            logger.info("Sandbox: Docker unavailable for tests, falling back to local", "SANDBOX")
-            return self._run_local_tests(test_file_path, source_code, source_filename, extra_files)
-
-        if not self._docker_image_ready():
-            logger.warning("Sandbox: image unavailable for tests, falling back to local", "SANDBOX")
-            result = self._run_local_tests(test_file_path, source_code, source_filename, extra_files)
-            result["image_unavailable"] = True
-            return result
+        ready, reason = self._ready_for_execution("tests")
+        if not ready:
+            if reason == "image":
+                logger.warning("Sandbox: image unavailable for tests — refusing to run untrusted tests on host", "SANDBOX")
+                return {"success": False, "error": "Sandbox unavailable (image not provisioned)", "image_unavailable": True, "mode": "unavailable"}
+            logger.error("Sandbox: Docker unavailable for tests — refusing to run untrusted tests on host", "SANDBOX")
+            return {"success": False, "error": "Sandbox unavailable (Docker required)", "image_unavailable": True, "mode": "unavailable"}
 
         try:
             if not os.path.exists(test_file_path):
@@ -1050,12 +805,12 @@ class Sandbox:
 
             with TempDir(prefix="airisk_tests_") as temp_dir:
                 if source_code and source_filename:
-                    src_path = os.path.join(temp_dir, source_filename)
+                    src_path = safe_repo_path(temp_dir, source_filename)
                     with open(src_path, "w", encoding="utf-8") as f:
-                        self._write_mock_header(f, source_filename=source_filename)
+                        self._write_mock_header(f)
                         f.write(source_code)
 
-                target_path = os.path.join(temp_dir, safe_name)
+                target_path = safe_repo_path(temp_dir, safe_name)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
                 with open(target_path, "w", encoding="utf-8") as f:
                     f.write(test_content)
@@ -1091,24 +846,18 @@ class Sandbox:
                         tf.write(test_content)
 
                 if missing:
-                    pip_and_test = (
-                        "import subprocess, sys; "
-                        "r = subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--no-build-isolation', '--user'] + sys.argv[1:], capture_output=True, text=True); "
-                        "print(r.stderr, flush=True) if r.returncode != 0 else None; "
-                        f"sys.exit(subprocess.call([sys.executable, '-m', 'pytest', '/app/{safe_name}', '-v']))"
-                    )
-                    entry_point = ["python", "-c", pip_and_test] + sorted(missing)
-                    # Dependency installs need outbound access, so they always
-                    # force bridge regardless of the user's network setting.
-                    cmd = self._build_docker_cmd(container_name, mount_path, entry_point, network="bridge", read_only=False)
+                    # Never pip-install attacker-controlled package names at
+                    # runtime (this previously forced --network=bridge + a
+                    # writable rootfs). Missing deps are reported so pytest
+                    # fails on the unresolved import instead.
                     logger.warning(
-                        f"Test deps {', '.join(sorted(missing))} are not staged in the image and network is "
-                        f"disabled — pre-bake these into the Docker image instead of pip-installing at runtime",
+                        f"Test deps {', '.join(sorted(missing))} are not staged in the image — "
+                        f"not installing at runtime; pre-bake these into the Docker image",
                         "SANDBOX"
                     )
-                else:
-                    entry_point = ["python", "-m", "pytest", f"/app/{safe_name}", "-v"]
-                    cmd = self._build_docker_cmd(container_name, mount_path, entry_point, network=network)
+
+                entry_point = ["python", "-m", "pytest", f"/app/{safe_name}", "-v"]
+                cmd = self._build_docker_cmd(container_name, mount_path, entry_point, network=network)
 
                 result = self._do_docker_run(cmd, container_name, mode="docker", track_exit_code=True, timeout=config.sandbox.docker.test_timeout_seconds, max_output_bytes=config.sandbox.docker.test_max_output_bytes)
                 if rebind_info.get("rebound"):

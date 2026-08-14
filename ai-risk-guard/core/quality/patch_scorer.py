@@ -48,8 +48,6 @@ class PatchScorer:
             test_mode = test_results.get("mode", "unknown")
             if test_mode == "docker":
                 score += self.weights["tests_passed"]
-            elif test_mode == "local":
-                score += self.weights["tests_passed"] * 0.6
             else:
                 score += self.weights["tests_passed"] * 0.4
         elif test_results.get("skipped") is True:
@@ -88,8 +86,6 @@ class PatchScorer:
             test_mode = test_results.get("mode", "unknown")
             if test_mode == "docker":
                 tests_score = self.weights["tests_passed"]
-            elif test_mode == "local":
-                tests_score = self.weights["tests_passed"] * 0.6
             else:
                 tests_score = self.weights["tests_passed"] * 0.4
         elif test_results.get("skipped") is True:

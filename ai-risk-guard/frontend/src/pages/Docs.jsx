@@ -116,7 +116,7 @@ export default function Docs() {
               <li>Read-only filesystem with a small tmpfs for runtime storage.</li>
               <li>Memory, CPU, and process-count limits.</li>
               <li>All Linux capabilities dropped and unsafe syscalls restricted.</li>
-              <li>If Docker is unavailable, a hardened local fallback applies resource limits where supported.</li>
+              <li>If Docker or the sandbox image is unavailable, scans fail closed — untrusted code is never executed on the host.</li>
             </ul>
             <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
               You can inspect the live sandbox mode on the <a href="/status" className="underline">System Status</a> page.
@@ -143,7 +143,7 @@ export default function Docs() {
               </div>
               <div>
                 <p className="text-sm font-semibold">Is Docker required?</p>
-                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No — the tool falls back to a local sandbox when Docker is unavailable.</p>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Yes — sandbox validation runs in Docker. If Docker is unavailable, scans fail closed and no untrusted code is executed.</p>
               </div>
               <div>
                 <p className="text-sm font-semibold">How do I give feedback on a patch?</p>

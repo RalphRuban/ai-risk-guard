@@ -396,7 +396,7 @@ Key functions: `get_dashboard, increment_dashboard`, `upsert_user/repo`, `get_re
 | Method | Route |
 |--------|-------|
 | POST | `/webhook` |
-| GET | `/api/health` , `/api/metrics/prometheus`, `/api/metrics/summary` |
+| GET | `/api/health` , `/api/metrics/prometheus` |
 | GET | `/api/policy` |
 | GET | `/api/settings` (POST) |
 | GET | `/api/health/gemini`, `/api/health/db`, `/api/health/sandbox` |

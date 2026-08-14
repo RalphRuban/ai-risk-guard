@@ -1,0 +1,44 @@
+name: ai-risk-guard-validation
+
+on:
+  repository_dispatch:
+    types: [ai-risk-guard-validate]
+
+# Phase E — CI-runner fallback validation.
+# The App dispatches candidates that failed closed because its own Docker was
+# unavailable. This workflow (which lives in the *workflow repo* — by default
+# the AI Risk Guard repo itself) runs the sandbox validation on a hosted
+# runner and POSTs the results back to the App, which re-injects them into a
+# re-analysis pass so the PR comment/check pick up real runtime evidence.
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install --quiet -r requirements.txt
+
+      - name: Fetch validation payloads
+        env:
+          CI_VALIDATION_JOB_IDS: ${{ github.event.client_payload.job_ids }}
+        run: python ci/validate.py fetch --base-url "${{ github.event.client_payload.base_url }}" --secret "${{ secrets.AI_RISK_GUARD_CI_SECRET }}" --job "$CI_VALIDATION_JOB_IDS"
+
+      - name: Run sandbox validation
+        env:
+          CI_VALIDATION_JOB_IDS: ${{ github.event.client_payload.job_ids }}
+        run: python ci/validate.py run --job "$CI_VALIDATION_JOB_IDS"
+
+      - name: Report results
+        env:
+          CI_VALIDATION_JOB_IDS: ${{ github.event.client_payload.job_ids }}
+        run: python ci/validate.py report --base-url "${{ github.event.client_payload.base_url }}" --secret "${{ secrets.AI_RISK_GUARD_CI_SECRET }}" --job "$CI_VALIDATION_JOB_IDS"

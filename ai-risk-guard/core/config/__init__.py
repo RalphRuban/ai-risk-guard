@@ -23,6 +23,21 @@ _CONFIG_DIR = Path(__file__).resolve().parent.parent.parent / "config"
 M = TypeVar("M", bound=BaseModel)
 
 
+def _strict_enabled() -> bool:
+    """Whether invalid config files must fail startup instead of using defaults.
+
+    Strict (fail fast) is the default. Set CONFIG_STRICT=0/false/no/off to
+    restore the lenient dev behavior that logs and falls back to defaults.
+    """
+    return os.environ.get("CONFIG_STRICT", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+        "",
+    )
+
+
 class ConfigRegistry:
     """Central registry for all configuration objects."""
 
@@ -82,10 +97,16 @@ class ConfigRegistry:
             with open(full_path, "r", encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
             return model_class(**raw)
-        except (yaml.YAMLError, Exception) as e:
-            self._logger.error(
-                "Failed to load config %s: %s. Using defaults.", yaml_path, e
-            )
+        except Exception as e:
+            # Fail fast: a malformed config file or a Pydantic validation error
+            # must never silently run the app on defaults. Set CONFIG_STRICT=0
+            # (or false/no/off) to restore the old lenient dev behavior.
+            self._logger.error("Failed to load config %s: %s", yaml_path, e)
+            if _strict_enabled():
+                raise RuntimeError(
+                    f"Invalid configuration file {yaml_path}: {e} "
+                    "(set CONFIG_STRICT=0 to ignore and use defaults)"
+                ) from e
             return model_class()
 
     @staticmethod

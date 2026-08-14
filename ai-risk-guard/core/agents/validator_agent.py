@@ -14,7 +14,7 @@ from core.config import config
 from core.exceptions import InputValidationError, ValidationError
 from core.policy.policy_engine import PolicyEngine
 from core.quality.patch_scorer import PatchScorer
-from core.utils.validation import validate_code_input
+from core.utils.validation import safe_filename, validate_code_input
 from core.validator.patch_validator import PatchValidator
 from core.validator.sandbox import Sandbox
 from core.validator.security_rescan import SecurityRescanner
@@ -83,6 +83,21 @@ def _check_ssrf_patch(patched_code: str) -> dict[str, Any]:
     return {"success": True, "total": len(_SSRF_TEST_URLS), "failed": 0}
 
 
+def _safe_source_filename(file_path: str, repo_root: str) -> str | None:
+    """Derive a source filename that can never escape the sandbox root.
+
+    The raw relpath (from attacker-controlled PR filenames) may contain
+    ``..`` components; fall back to the basename in that case.
+    """
+    if not file_path:
+        return None
+    if repo_root:
+        rel = os.path.relpath(file_path, repo_root).replace("\\", "/")
+        if not rel.startswith("..") and not os.path.isabs(rel):
+            return rel
+    return safe_filename(file_path) or None
+
+
 class ValidatorAgent(BaseAgent):
     """
     Agent specialized in patch verification and security re-scanning.
@@ -102,7 +117,7 @@ class ValidatorAgent(BaseAgent):
         test_file = context.get("test_file_path") or context.get("associated_test_file")
         repo_root = context.get("repo_root", "")
         file_path = context.get("file_path", "")
-        source_filename = os.path.relpath(file_path, repo_root).replace("\\", "/") if repo_root and file_path else os.path.basename(file_path) or None
+        source_filename = _safe_source_filename(file_path, repo_root)
         
         if not candidates:
             self.log("No patch candidates to validate")
@@ -172,60 +187,6 @@ class ValidatorAgent(BaseAgent):
                     if not test_results.get("skipped"):
                         test_results["skipped"] = False
 
-                    if test_results.get("mode") == "local":
-                        test_results["docker_unavailable"] = True
-
-                    docker_ran = (
-                        test_results.get("mode") == "docker"
-                        and thread_sandbox._is_docker_available()
-                    )
-                    # In explicit comparison mode, always capture local results so
-                    # the PR comment can show a Docker-vs-Local comparison even when
-                    # the Docker engine is unavailable (mode == "local").
-                    want_comparison = (
-                        scan_mode == "sandbox_and_local_comparison"
-                        and not test_results.get("skipped")
-                    )
-                    want_fallback_comparison = (
-                        config.sandbox.enable_local_fallback_comparison
-                        and docker_ran
-                        and not test_results.get("skipped")
-                        and test_results.get("success") is False
-                    )
-                    if want_comparison or want_fallback_comparison:
-                        try:
-                            local_results = thread_sandbox._run_local_tests(
-                                test_file, source_code=patched_code, source_filename=source_filename, extra_files=extra_files
-                            )
-                            # Local results must get the same expected-failure
-                            # attribution as the Docker result, otherwise the
-                            # same pinned-vulnerability tests show as "Docker
-                            # passed / Local failed" in the comparison table.
-                            if (
-                                config.sandbox.enable_expected_failure_analysis
-                                and not local_results.get("skipped")
-                                and local_results.get("output")
-                            ):
-                                self._classify_expected_failures(local_results, candidate, context, test_file)
-                            test_results["local_fallback"] = {
-                                "success": local_results.get("success"),
-                                "raw_success": local_results.get(
-                                    "raw_success", local_results.get("success")
-                                ),
-                                "mode": local_results.get("mode"),
-                                "expected_failures": local_results.get("expected_failures", []),
-                                "regression_failures": local_results.get("regression_failures", []),
-                                "passing_tests": local_results.get("passing_tests", []),
-                            }
-                            self.log(
-                                f"Local comparison: "
-                                f"{'PASS' if local_results.get('success') else 'FAIL'} "
-                                f"({len(local_results.get('expected_failures', []))} expected, "
-                                f"{len(local_results.get('regression_failures', []))} regressions)"
-                            )
-                        except Exception as e:
-                            self.log(f"Local fallback comparison failed: {e}", "warning")
-
                     if (
                         config.sandbox.enable_expected_failure_analysis
                         and not test_results.get("skipped")
@@ -238,7 +199,52 @@ class ValidatorAgent(BaseAgent):
                         self.log(f"Regression tests PASSED for candidate {candidate['id']}")
                     else:
                         self.log(f"Regression tests FAILED for candidate {candidate['id']}", "warning")
-                
+
+                # CI-runner fallback (Phase E): when the sandbox/regression-test
+                # stages failed closed because Docker is unavailable, either
+                # re-inject a completed CI-runner result (genuine runtime
+                # evidence) or capture this candidate as a pending job that the
+                # App dispatches to a GitHub Actions runner.
+                ci_validated = False
+                docker_unavailable = bool(
+                    sandbox_res.get("image_unavailable")
+                    or sandbox_res.get("mode") == "unavailable"
+                    or test_results.get("image_unavailable")
+                    or test_results.get("mode") == "unavailable"
+                )
+                if docker_unavailable:
+                    from core.ci.validation import (
+                        ci_validation_enabled,
+                        get_ci_validation_result,
+                        record_pending_validation_job,
+                    )
+                    if ci_validation_enabled(context):
+                        ci_result = get_ci_validation_result(
+                            context, candidate, source_filename, patched_code
+                        )
+                        if ci_result is not None:
+                            sandbox_res = ci_result["sandbox"]
+                            test_results = ci_result["test_results"]
+                            ci_validated = True
+                            self.log(
+                                f"Candidate {candidate['id']} runtime validation "
+                                "completed by CI runner (Docker unavailable locally)"
+                            )
+                        else:
+                            record_pending_validation_job(
+                                context, candidate, source_filename, patched_code,
+                                test_file, context.get("test_deps") or [],
+                                scan_mode, network,
+                            )
+                    # The static SSRF validator check still rejects the patch
+                    # even when CI supplied runtime evidence.
+                    if ci_validated and ssrf_res.get("success") is False:
+                        sandbox_res = dict(sandbox_res or {})
+                        sandbox_res["success"] = False
+                        existing_error = sandbox_res.get("error") or ""
+                        sandbox_res["error"] = f"{existing_error} SSRF validator check failed".strip()
+                        self.log(f"SSRF validator check FAILED for candidate {candidate['id']}: {ssrf_res['error']}", "warning")
+
                 score = 0.0
                 if syntax_res.get("success") is True: score += 0.20
                 if sandbox_res.get("success") is True: score += 0.25
@@ -249,8 +255,6 @@ class ValidatorAgent(BaseAgent):
                     test_mode = test_results.get("mode", "unknown")
                     if test_mode == "docker":
                         score += 0.25
-                    elif test_mode == "local":
-                        score += 0.15
                     else:
                         score += 0.10
                 elif test_results.get("skipped") is True:
@@ -264,6 +268,15 @@ class ValidatorAgent(BaseAgent):
                     "rescan": rescan_res, "policy": policy_res,
                     "ssrf_validator": ssrf_res,
                 }
+                # When Docker is unavailable the sandbox execution and
+                # regression-test stages fail closed. The remaining stages
+                # (syntax, re-scan, policy, SSRF validator) are all static and
+                # still completed, so mark this candidate "static-only". A
+                # completed CI-runner validation lifts that to real runtime
+                # evidence (validated_by: ci_runner).
+                candidate["validation_details"]["static_only"] = docker_unavailable and not ci_validated
+                if ci_validated:
+                    candidate["validation_details"]["validated_by"] = "ci_runner"
                 candidate["test_results"] = test_results
                 candidate["quality_score"] = self.patch_scorer.score(candidate, context)
                 try:

@@ -55,7 +55,7 @@ const stages = [
       'Stage 3: Security re-scan — checks for remaining vulnerabilities',
       'Stage 4: Policy compliance — verifies mandatory sanitizers applied',
       'Stage 5: Regression testing — runs synthesized test files',
-      'Docker unavailable? Falls back to local with environment-aware scoring',
+      'Docker unavailable? Scans fail closed — no untrusted code runs on the host',
     ],
   },
   {

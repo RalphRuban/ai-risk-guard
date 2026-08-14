@@ -25,6 +25,16 @@ def write_temp_file(content, suffix=".py"):
     temp.close()
     return temp.name
 
+
+def csrf_headers(client):
+    """Return an X-CSRF-Token header matching the csrf_token cookie.
+
+    The first GET triggers the after_request that sets the cookie.
+    """
+    client.get("/api/me")
+    cookie = client.get_cookie("csrf_token")
+    return {"X-CSRF-Token": cookie.value} if cookie else {}
+
 # =========================================================
 # ORCHESTRATION TESTS (NEW: WEEK 1-6)
 # =========================================================
@@ -245,13 +255,6 @@ class TestSilentAlerts:
         header = build_mock_header()
         assert "isinstance(k, str)" in header
         assert "_env.setdefault('PATH'," in header
-
-    def test_sandbox_local_runs_debug_code_without_hang(self):
-        from core.validator.sandbox import Sandbox
-        code = "import pdb\nbreakpoint()\ndef main():\n    pdb.set_trace()\n    return 42\nprint(main())"
-        result = Sandbox()._run_local(code, source_filename="snippet.py")
-        assert result.get("success") is True
-        assert "42" in (result.get("output") or "")
 
     def test_pipeline_marks_tls_finding_as_silent(self):
         path = write_temp_file("import requests\nrequests.get('https://internal.api/users', verify=False)")
@@ -814,7 +817,8 @@ class TestHybridReporter:
         assert "Command Injection" in report
         assert "Hardcoded Secret" in report
         assert "*(legacy)*" in report
-        assert "SARIF alerts: Security" in report
+        assert "SARIF alerts: Security" not in report
+        assert "✅ Check: `ai-risk-guard/validation` in Checks" in report
 
 
 # =========================================================
@@ -1391,18 +1395,45 @@ class TestPerUserData:
         resp = self.client.post("/feedback", json={
             "vuln_type": "SQL_INJECTION", "outcome": "ACCEPTED",
             "repo_id": 1, "pr_number": 1, "scan_id": 1,
-        })
+        }, headers=csrf_headers(self.client))
         assert resp.status_code == 200
         # Invalid context values rejected
         resp = self.client.post("/feedback", json={
             "vuln_type": "SQL_INJECTION", "outcome": "ACCEPTED", "repo_id": "x",
-        })
+        }, headers=csrf_headers(self.client))
         assert resp.status_code == 400
 
     def test_api_findings_scans_require_auth(self):
         self._seed()
         assert self.client.get("/api/findings").status_code == 401
         assert self.client.get("/api/scans").status_code == 401
+
+    def test_finding_status_scoped_per_user(self):
+        """A user cannot change the status of another user's finding (IDOR)."""
+        import utils.db as udb
+        self._seed()
+        with self.client.session_transaction() as sess:
+            sess["user"] = {"github_id": "111", "login": "alice"}
+        # Alice's finding id (SQL_INJECTION from scan 1) can be updated by Alice.
+        resp = self.client.post("/api/findings/1/status", json={"status": "resolved"},
+                                headers=csrf_headers(self.client))
+        assert resp.status_code == 200
+        assert udb.get_all_findings(111)[0]["status"] == "resolved"
+
+        # Bob must get 404 on Alice's finding.
+        with self.client.session_transaction() as sess:
+            sess["user"] = {"github_id": "222", "login": "bob"}
+        resp = self.client.post("/api/findings/1/status", json={"status": "dismissed"},
+                                headers=csrf_headers(self.client))
+        assert resp.status_code == 404
+        # Alice's finding status must be unchanged after Bob's attempt.
+        assert udb.get_all_findings(111)[0]["status"] == "resolved"
+
+        # Bob can update his own finding.
+        resp = self.client.post("/api/findings/2/status", json={"status": "dismissed"},
+                                headers=csrf_headers(self.client))
+        assert resp.status_code == 200
+        assert udb.get_all_findings(222)[0]["status"] == "dismissed"
 
     def test_dashboard_and_findings_dedupe_rescans_of_same_pr(self):
         import utils.db as udb
@@ -1449,7 +1480,7 @@ class TestPerUserData:
             sess["user"] = {"github_id": "111", "login": "alice", "name": "Alice"}
         resp = self.client.post("/api/feedback", json={
             "vuln_type": "SSRF", "outcome": "ACCEPTED", "repo_id": 1, "pr_number": 1, "scan_id": 1,
-        })
+        }, headers=csrf_headers(self.client))
         assert resp.status_code == 200
         assert resp.get_json()["status"] == "success"
 
@@ -1481,26 +1512,30 @@ class TestUserScanSettings:
 
     def test_defaults_for_unknown_or_none_user(self):
         import utils.db as udb
-        assert udb.get_user_settings(None)["scan_mode"] == "sandbox_with_local_fallback"
+        assert udb.get_user_settings(None)["scan_mode"] == "docker_only"
         assert udb.get_user_settings(None)["sandbox_network"] == "none"
-        assert udb.get_user_settings(999)["scan_mode"] == "sandbox_with_local_fallback"
+        assert udb.get_user_settings(None)["codeql_enabled"] is True
+        assert udb.get_user_settings(999)["scan_mode"] == "docker_only"
+        assert udb.get_user_settings(999)["codeql_enabled"] is True
 
     def test_update_and_roundtrip(self):
         import utils.db as udb
         self._seed_user()
-        udb.update_user_settings(111, scan_mode="sandbox_and_local_comparison", sandbox_network="bridge")
+        udb.update_user_settings(111, scan_mode="sandbox_with_local_fallback", sandbox_network="bridge", codeql_enabled=False)
         settings = udb.get_user_settings(111)
-        assert settings["scan_mode"] == "sandbox_and_local_comparison"
+        assert settings["scan_mode"] == "sandbox_with_local_fallback"
         assert settings["sandbox_network"] == "bridge"
+        assert settings["codeql_enabled"] is False
 
     def test_partial_update_keeps_other_field(self):
         import utils.db as udb
         self._seed_user()
-        udb.update_user_settings(111, scan_mode="sandbox_and_local_comparison", sandbox_network="bridge")
+        udb.update_user_settings(111, scan_mode="sandbox_with_local_fallback", sandbox_network="bridge")
         udb.update_user_settings(111, sandbox_network="none")
         settings = udb.get_user_settings(111)
-        assert settings["scan_mode"] == "sandbox_and_local_comparison"
+        assert settings["scan_mode"] == "sandbox_with_local_fallback"
         assert settings["sandbox_network"] == "none"
+        assert settings["codeql_enabled"] is True
 
     def test_invalid_value_raises(self):
         import utils.db as udb
@@ -1515,15 +1550,22 @@ class TestUserScanSettings:
             assert False, "expected ValueError"
         except ValueError:
             pass
+        try:
+            udb.update_user_settings(111, codeql_enabled="yes")
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
 
     def test_per_user_isolation(self):
         import utils.db as udb
         self._seed_user(111, "alice")
         self._seed_user(222, "bob")
-        udb.update_user_settings(111, scan_mode="sandbox_and_local_comparison", sandbox_network="bridge")
-        assert udb.get_user_settings(111)["scan_mode"] == "sandbox_and_local_comparison"
-        assert udb.get_user_settings(222)["scan_mode"] == "sandbox_with_local_fallback"
+        udb.update_user_settings(111, scan_mode="sandbox_with_local_fallback", sandbox_network="bridge", codeql_enabled=False)
+        assert udb.get_user_settings(111)["scan_mode"] == "sandbox_with_local_fallback"
+        assert udb.get_user_settings(111)["codeql_enabled"] is False
+        assert udb.get_user_settings(222)["scan_mode"] == "docker_only"
         assert udb.get_user_settings(222)["sandbox_network"] == "none"
+        assert udb.get_user_settings(222)["codeql_enabled"] is True
 
     def test_api_settings_get_requires_auth(self):
         assert self.client.get("/api/settings").status_code == 401
@@ -1533,8 +1575,9 @@ class TestUserScanSettings:
         with self.client.session_transaction() as sess:
             sess["user"] = {"github_id": "111", "login": "alice"}
         data = self.client.get("/api/settings").get_json()
-        assert data["settings"]["scan_mode"] == "sandbox_with_local_fallback"
-        assert set(data["options"]["scan_modes"]) == {"sandbox_with_local_fallback", "sandbox_and_local_comparison"}
+        assert data["settings"]["scan_mode"] == "docker_only"
+        assert data["settings"]["codeql_enabled"] is True
+        assert set(data["options"]["scan_modes"]) == {"docker_only", "sandbox_with_local_fallback"}
         assert set(data["options"]["networks"]) == {"none", "bridge"}
 
     def test_api_settings_post_persists(self):
@@ -1542,22 +1585,26 @@ class TestUserScanSettings:
         with self.client.session_transaction() as sess:
             sess["user"] = {"github_id": "111", "login": "alice"}
         resp = self.client.post("/api/settings", json={
-            "scan_mode": "sandbox_and_local_comparison",
+            "scan_mode": "sandbox_with_local_fallback",
             "sandbox_network": "bridge",
-        })
+            "codeql_enabled": False,
+        }, headers=csrf_headers(self.client))
         assert resp.status_code == 200
         assert resp.get_json()["saved"] is True
         data = self.client.get("/api/settings").get_json()
-        assert data["settings"]["scan_mode"] == "sandbox_and_local_comparison"
+        assert data["settings"]["scan_mode"] == "sandbox_with_local_fallback"
         assert data["settings"]["sandbox_network"] == "bridge"
+        assert data["settings"]["codeql_enabled"] is False
 
     def test_api_settings_post_invalid_returns_400(self):
         self._seed_user()
         with self.client.session_transaction() as sess:
             sess["user"] = {"github_id": "111", "login": "alice"}
-        resp = self.client.post("/api/settings", json={"scan_mode": "bogus"})
+        resp = self.client.post("/api/settings", json={"scan_mode": "bogus"}, headers=csrf_headers(self.client))
         assert resp.status_code == 400
-        resp = self.client.post("/api/settings", json={})
+        resp = self.client.post("/api/settings", json={}, headers=csrf_headers(self.client))
+        assert resp.status_code == 400
+        resp = self.client.post("/api/settings", json={"codeql_enabled": "yes"}, headers=csrf_headers(self.client))
         assert resp.status_code == 400
 
 # =========================================================
@@ -1598,27 +1645,6 @@ class TestFeature345Regressions:
         assert Sandbox._cli_arguments_only(
             SimpleNamespace(stderr="unrelated failure")
         ) is False
-
-    def test_sandbox_local_tolerates_missing_cli_args(self):
-        from core.validator.sandbox import Sandbox
-        code = (
-            "import argparse\n"
-            "def main():\n"
-            "    parser = argparse.ArgumentParser(prog=\"demo\")\n"
-            "    sub = parser.add_subparsers(dest=\"command\", required=True)\n"
-            "    add = sub.add_parser(\"add\")\n"
-            "    add.add_argument(\"title\")\n"
-            "    parser.parse_args()\n"
-            "main()\n"
-        )
-        result = Sandbox()._run_local(code, source_filename="demo.py")
-        assert result.get("success") is True
-        assert result.get("note") == "cli_arguments_required"
-
-    def test_sandbox_local_still_fails_on_real_traceback(self):
-        from core.validator.sandbox import Sandbox
-        result = Sandbox()._run_local("print(1/0)", source_filename="crash.py")
-        assert result.get("success") is False
 
     # ---------------- Fix 2: PATH_TRAVERSAL base dir ----------------
 

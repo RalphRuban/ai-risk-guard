@@ -8,7 +8,7 @@ import gzip
 import json
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -43,6 +43,9 @@ from utils.retry import RateLimitError, retry
 sarif_generator = SARIFGenerator()
 
 BOT_MARKER = "<!-- ai-risk-guard -->"
+
+# Scan times are shown to the developer in Indian Standard Time (UTC+5:30).
+IST = timezone(timedelta(hours=5, minutes=30))
 
 RISK_LABEL_PREFIX = "security-risk-"
 
@@ -323,6 +326,112 @@ def _shared_candidate_count(results, r):
     return sum(1 for other in results if other.get("candidate_id") == candidate_id)
 
 
+# Process-level memo so the LLM regression explanation is generated at most once
+# per distinct test_results payload per process (a file's findings all share one
+# payload, so this turns N card renders into one Gemini call).
+_regression_explanation_cache: dict[str, str | None] = {}
+
+
+def _regression_explanation(test_results) -> str | None:
+    """Return a readable LLM explanation for the test results, or ``None``.
+
+    Fail-open: returns ``None`` (never raises) when the LLM is unavailable,
+    rate-limited, or disabled, so callers fall back to the deterministic block.
+    """
+    if not test_results:
+        return None
+    key = json.dumps(test_results, sort_keys=True, default=str)
+    if key in _regression_explanation_cache:
+        return _regression_explanation_cache[key]
+    try:
+        from core.triage.llm_triage import LLMTriage
+        text = LLMTriage().explain_regression_tests(test_results)
+    except Exception:
+        text = None
+    _regression_explanation_cache[key] = text
+    return text
+
+
+def _format_regression_details(r) -> str:
+    """Render the technical regression-test detail block for one result.
+
+    Mirrors the deterministic block shown in every finding card; used as a
+    collapsed per-file section when the readable LLM paragraph replaces it in
+    the cards, so test counts, pinned test names, env vars and rebind info stay
+    available on demand.
+    """
+    validation = r.get("validation", {})
+    details = validation.get("details", {})
+    sandbox_res = details.get("sandbox", {})
+    test_results = validation.get("test_results", {})
+    test_summary = parse_test_summary(test_results.get("output", ""))
+    expected_failures = test_results.get("expected_failures") or []
+    regression_failures = test_results.get("regression_failures") or []
+
+    parts = []
+    if test_summary:
+        count_parts = [f"{test_summary['passed']} passed"]
+        if expected_failures:
+            count_parts.append(f"{len(expected_failures)} expected")
+        remaining_failed = test_summary["failed"] - len(expected_failures)
+        if remaining_failed > 0:
+            count_parts.append(f"{remaining_failed} failed")
+        if test_summary.get("error"):
+            count_parts.append(f"{test_summary['error']} error" + ("s" if test_summary["error"] != 1 else ""))
+        count_parts.append(f"{test_summary['skipped']} skipped")
+        parts.append(f"ℹ️ Regression tests: {', '.join(count_parts)} (mode: docker)")
+    elif test_results.get("mode") == "docker":
+        parts.append("ℹ️ Test environment: docker")
+
+    if expected_failures and not regression_failures:
+        parts.append(
+            f"ℹ️ *{len(expected_failures)} failing test(s) pin the removed vulnerabilities "
+            f"({', '.join(expected_failures)}) — expected to fail after the fix, not regressions.*"
+        )
+
+    rebind_info = test_results.get("rebind") or {}
+    if rebind_info.get("rebound"):
+        mapping = " → ".join(f"{k} → {v}" for k, v in (rebind_info.get("rebound_map") or {}).items())
+        if mapping:
+            parts.append(f"ℹ️ *Test imports rebound to patched module ({mapping}).*")
+
+    mocked_env = test_results.get("mocked_env_vars") or []
+    if mocked_env:
+        parts.append(f"ℹ️ *Sandbox mocked env vars: {', '.join(mocked_env)} — tests asserting the original values fail on substitution, not a patch regression.*")
+
+    skip_reason = (test_results.get("error") or "").strip()
+    if test_results.get("skipped") and skip_reason and skip_reason != "No test file":
+        parts.append(f"⏭️ *Regression tests skipped — {skip_reason}.*")
+
+    no_true_regressions = (
+        bool(expected_failures)
+        and not regression_failures
+        and not test_results.get("skipped")
+        and test_results.get("success") is True
+    )
+
+    if no_true_regressions:
+        parts.append(f"✅ No regressions — {len(expected_failures)} test(s) pin the removed vulnerabilities and are expected to fail after the fix.")
+    elif test_results.get("success") is False and not test_results.get("skipped") and not (test_results.get("image_unavailable") or sandbox_res.get("image_unavailable")):
+        total_run = (test_summary["passed"] + test_summary["failed"]) if test_summary else 0
+        err_text = "".join(filter(None, [
+            test_results.get("error") or "",
+            "\n",
+            test_results.get("output") or "",
+        ])).strip()
+        if total_run == 0 and err_text:
+            reason = _extract_collection_error(err_text)
+            parts.append(f"⚠️ *Tests could not run — {reason}*")
+        elif regression_failures:
+            parts.append(
+                f"⚠️ *Regression test failure — {len(regression_failures)} test(s) fail outside the fixed behavior: "
+                f"{', '.join(regression_failures)}.*"
+            )
+        else:
+            parts.append("⚠️ *Regression test failure expected — tests were written for pre-patch code.*")
+    return "\n\n".join(parts)
+
+
 def _format_finding_card(r, is_legacy=False, index=None, total=None, shared_count=1):
     vulnerability = r["vulnerability"]
     vulnerability_type = vulnerability["type"]
@@ -387,51 +496,65 @@ def _format_finding_card(r, is_legacy=False, index=None, total=None, shared_coun
     test_summary = parse_test_summary(test_results.get("output", ""))
     expected_failures = test_results.get("expected_failures") or []
     regression_failures = test_results.get("regression_failures") or []
-    if test_summary:
-        count_parts = [f"{test_summary['passed']} passed"]
-        if expected_failures:
-            count_parts.append(f"{len(expected_failures)} expected")
-        remaining_failed = test_summary["failed"] - len(expected_failures)
-        if remaining_failed > 0:
-            count_parts.append(f"{remaining_failed} failed")
-        if test_summary.get("error"):
-            count_parts.append(f"{test_summary['error']} error" + ("s" if test_summary["error"] != 1 else ""))
-        count_parts.append(f"{test_summary['skipped']} skipped")
-        card += f"ℹ️ Regression tests: {', '.join(count_parts)} (mode: {test_results.get('mode', 'unknown')})\n\n"
-    elif test_results.get("mode"):
-        card += f"ℹ️ Test environment: {test_results.get('mode', 'unknown')}\n\n"
+    regression_explanation = _regression_explanation(test_results)
 
-    if expected_failures and not regression_failures:
-        card += (
-            f"ℹ️ *{len(expected_failures)} failing test(s) pin the removed vulnerabilities "
-            f"({', '.join(expected_failures)}) — expected to fail after the fix, not regressions.*\n\n"
-        )
+    if regression_explanation:
+        card += f"**Regression tests**\n\n{regression_explanation}\n\n"
+    else:
+        if test_summary:
+            count_parts = [f"{test_summary['passed']} passed"]
+            if expected_failures:
+                count_parts.append(f"{len(expected_failures)} expected")
+            remaining_failed = test_summary["failed"] - len(expected_failures)
+            if remaining_failed > 0:
+                count_parts.append(f"{remaining_failed} failed")
+            if test_summary.get("error"):
+                count_parts.append(f"{test_summary['error']} error" + ("s" if test_summary["error"] != 1 else ""))
+            count_parts.append(f"{test_summary['skipped']} skipped")
+            card += f"ℹ️ Regression tests: {', '.join(count_parts)} (mode: docker)\n\n"
+        elif test_results.get("mode") == "docker":
+            card += "ℹ️ Test environment: docker\n\n"
 
-    rebind_info = test_results.get("rebind") or {}
-    if rebind_info.get("rebound"):
-        mapping = " → ".join(f"{k} → {v}" for k, v in (rebind_info.get("rebound_map") or {}).items())
-        if mapping:
-            card += f"ℹ️ *Test imports rebound to patched module ({mapping}).*\n\n"
+        if expected_failures and not regression_failures:
+            card += (
+                f"ℹ️ *{len(expected_failures)} failing test(s) pin the removed vulnerabilities "
+                f"({', '.join(expected_failures)}) — expected to fail after the fix, not regressions.*\n\n"
+            )
 
-    mocked_env = test_results.get("mocked_env_vars") or []
-    if mocked_env:
-        card += f"ℹ️ *Sandbox mocked env vars: {', '.join(mocked_env)} — tests asserting the original values fail on substitution, not a patch regression.*\n\n"
+        rebind_info = test_results.get("rebind") or {}
+        if rebind_info.get("rebound"):
+            mapping = " → ".join(f"{k} → {v}" for k, v in (rebind_info.get("rebound_map") or {}).items())
+            if mapping:
+                card += f"ℹ️ *Test imports rebound to patched module ({mapping}).*\n\n"
 
-    skip_reason = (test_results.get("error") or "").strip()
-    if test_results.get("skipped") and skip_reason and skip_reason != "No test file":
-        card += f"⏭️ *Regression tests skipped — {skip_reason}.*\n\n"
+        mocked_env = test_results.get("mocked_env_vars") or []
+        if mocked_env:
+            card += f"ℹ️ *Sandbox mocked env vars: {', '.join(mocked_env)} — tests asserting the original values fail on substitution, not a patch regression.*\n\n"
+
+        skip_reason = (test_results.get("error") or "").strip()
+        if test_results.get("skipped") and skip_reason and skip_reason != "No test file":
+            card += f"⏭️ *Regression tests skipped — {skip_reason}.*\n\n"
 
     infra_unavailable = (
         test_results.get("image_unavailable")
         or sandbox_res.get("image_unavailable")
     )
     if infra_unavailable and not test_results.get("skipped"):
-        card += (
-            "ℹ️ *Docker sandbox image not available — validation ran locally. "
-            "Build it with: `docker build -f sandbox/Dockerfile.sandbox -t ai-risk-guard:sandbox .`*\n\n"
-        )
-    elif test_results.get("docker_unavailable") and not test_results.get("skipped"):
-        card += "ℹ️ *Docker unavailable — tests ran locally.*\n\n"
+        if validation.get("static_only"):
+            card += (
+                "ℹ️ *Static-only validation — Docker sandbox unavailable, so runtime "
+                "execution and regression tests could not run (scans fail closed when "
+                "Docker or the sandbox image is missing). Syntax, security re-scan, "
+                "and policy checks completed statically. Build the image with: "
+                "`docker build -f sandbox/Dockerfile.sandbox -t ai-risk-guard:sandbox .`*\n\n"
+            )
+        else:
+            card += (
+                "ℹ️ *Docker sandbox unavailable — sandbox validation could not run "
+                "(scans fail closed when Docker or the sandbox image is missing). "
+                "Build the image with: "
+                "`docker build -f sandbox/Dockerfile.sandbox -t ai-risk-guard:sandbox .`*\n\n"
+            )
 
     no_true_regressions = (
         bool(expected_failures)
@@ -440,37 +563,34 @@ def _format_finding_card(r, is_legacy=False, index=None, total=None, shared_coun
         and test_results.get("success") is True
     )
 
-    local_fb = test_results.get("local_fallback")
-    if no_true_regressions:
-        card += f"✅ No regressions — {len(expected_failures)} test(s) pin the removed vulnerabilities and are expected to fail after the fix.\n\n"
-    elif local_fb is not None:
-        local_icon = "✅" if local_fb.get("success") else "❌"
-        docker_icon = "✅" if test_results.get("success") else "❌"
-        if local_fb.get("success") and not test_results.get("success"):
-            card += f"❌ Docker: {docker_icon} failed | Local fallback: {local_icon} passed\n"
-            card += "ℹ️ *Fix works outside sandbox — may have missing dependencies in Docker.*\n\n"
-        elif not local_fb.get("success") and not test_results.get("success"):
-            card += f"❌ Docker: {docker_icon} failed | Local fallback: {local_icon} failed\n"
-            card += "ℹ️ *Both environments failed — fix may be incomplete.*\n\n"
-        elif local_fb.get("success") and test_results.get("success"):
-            card += f"✅ Docker: {docker_icon} passed | Local fallback: {local_icon} passed\n\n"
-    elif test_results.get("success") is False and not test_results.get("skipped") and not infra_unavailable:
-        total_run = (test_summary["passed"] + test_summary["failed"]) if test_summary else 0
-        err_text = "".join(filter(None, [
-            test_results.get("error") or "",
-            "\n",
-            test_results.get("output") or "",
-        ])).strip()
-        if total_run == 0 and err_text:
-            reason = _extract_collection_error(err_text)
-            card += f"⚠️ *Tests could not run — {reason}*\n\n"
-        elif regression_failures:
-            card += (
-                f"⚠️ *Regression test failure — {len(regression_failures)} test(s) fail outside the fixed behavior: "
-                f"{', '.join(regression_failures)}.*\n\n"
-            )
-        else:
-            card += "⚠️ *Regression test failure expected — tests were written for pre-patch code.*\n\n"
+    if validation.get("validated_by") == "ci_runner":
+        card += (
+            "🤖 *Runtime validation completed on a GitHub Actions runner — the App's "
+            "own Docker sandbox was unavailable at scan time, so sandbox execution "
+            "and regression tests were re-run on a hosted runner and the evidence "
+            "re-injected here.*\n\n"
+        )
+
+    if not regression_explanation:
+        if no_true_regressions:
+            card += f"✅ No regressions — {len(expected_failures)} test(s) pin the removed vulnerabilities and are expected to fail after the fix.\n\n"
+        elif test_results.get("success") is False and not test_results.get("skipped") and not infra_unavailable:
+            total_run = (test_summary["passed"] + test_summary["failed"]) if test_summary else 0
+            err_text = "".join(filter(None, [
+                test_results.get("error") or "",
+                "\n",
+                test_results.get("output") or "",
+            ])).strip()
+            if total_run == 0 and err_text:
+                reason = _extract_collection_error(err_text)
+                card += f"⚠️ *Tests could not run — {reason}*\n\n"
+            elif regression_failures:
+                card += (
+                    f"⚠️ *Regression test failure — {len(regression_failures)} test(s) fail outside the fixed behavior: "
+                    f"{', '.join(regression_failures)}.*\n\n"
+                )
+            else:
+                card += "⚠️ *Regression test failure expected — tests were written for pre-patch code.*\n\n"
 
     items = patch_evaluation(r)
     if items:
@@ -511,6 +631,28 @@ def _format_compliance(results):
     return "<details><summary>🧾 Compliance</summary>\n\n" + "\n\n".join(blocks) + "\n\n</details>\n"
 
 
+def _format_ist_timestamp(value: str) -> str:
+    """Convert a stored UTC timestamp string to IST for display.
+
+    SQLite stores ``scanned_at`` as UTC ``YYYY-MM-DD HH:MM:SS``. Returns the
+    value unchanged when it cannot be parsed so display never breaks.
+    """
+    if not value:
+        return ""
+    dt = None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            dt = datetime.strptime(value, fmt)  # noqa: DTZ007 - stored value is naive UTC, made aware below
+            break
+        except ValueError:
+            continue
+    if dt is None:
+        return value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M")
+
+
 def _format_trend(previous):
     """Render the previous-scan comparison as a collapsible section."""
     if not previous:
@@ -525,86 +667,8 @@ def _format_trend(previous):
         f"| Max risk | {max_risk}/10 |",
     ]
     if scanned_at:
-        lines.append(f"| Scanned | {scanned_at} UTC |")
+        lines.append(f"| Scanned | {_format_ist_timestamp(scanned_at)} IST |")
     return "<details><summary>📈 Repository Trend</summary>\n\n" + "\n".join(lines) + "\n\n</details>\n"
-
-
-def _format_env_comparison(results, scan_mode=None):
-    """Render a Docker-vs-Local test comparison across all findings.
-
-    Only shown when the scan ran in explicit comparison mode; the reporter
-    otherwise has no Docker-vs-Local expectation to communicate.
-    """
-    if scan_mode != "sandbox_and_local_comparison":
-        return ""
-    rows = []
-    any_expected_failures = False
-    for r in results:
-        validation = r.get("validation", {})
-        test_results = validation.get("test_results", {})
-        if not test_results and not r.get("patch_suppressed"):
-            continue
-        vuln = r.get("vulnerability", {})
-        name = vuln_name(vuln.get("type", "Unknown"))
-        rule = r.get("rule_id") or vuln.get("type", "?")
-        mode = test_results.get("mode", "unknown")
-        success = test_results.get("success")
-        skipped = test_results.get("skipped")
-        docker_unavailable = bool(
-            test_results.get("docker_unavailable") or test_results.get("image_unavailable")
-        )
-
-        if docker_unavailable or mode == "local":
-            docker_cell = "⚠️ unavailable"
-        elif skipped:
-            docker_cell = "⏭️ skipped"
-        elif success is True:
-            docker_cell = "✅ passed"
-        elif success is False:
-            docker_cell = "❌ failed"
-        elif mode == "unknown":
-            docker_cell = "✅ passed" if success is True else "—"
-        else:
-            docker_cell = "—"
-
-        if test_results.get("local_fallback") is not None:
-            lf = test_results["local_fallback"]
-            if lf.get("expected_failures"):
-                any_expected_failures = True
-            local_cell = "✅ passed" if lf.get("success") else "❌ failed"
-        elif mode == "local":
-            local_cell = "✅ passed" if success is True else ("❌ failed" if success is False else "—")
-        else:
-            local_cell = "—"
-
-        if r.get("patch_suppressed"):
-            patch_cell = "🧩 suppressed (score too low)"
-        elif r.get("diff"):
-            patch_cell = "✅ applied"
-        else:
-            patch_cell = "—"
-
-        rows.append((f"`{rule}`", name, docker_cell, local_cell, patch_cell, mode))
-
-    if not rows:
-        return ""
-
-    lines = ["| Rule | Docker | Local | Patch |", "|------|--------|-------|-------|"]
-    lines += [f"| {rule} {name} | {docker} | {local} | {patch} |" for rule, name, docker, local, patch, _ in rows]
-    notes = []
-    if any(row[2] == "⚠️ unavailable" for row in rows):
-        notes.append("⚠️ Docker engine unavailable — comparison based on local execution only.")
-    if any(row[4] == "🧩 suppressed (score too low)" for row in rows):
-        notes.append("🧩 Suppressed findings had no automatic fix but their test evidence is shown.")
-    if any_expected_failures:
-        notes.append(
-            "ℹ️ Test failures that pin removed vulnerabilities are counted as expected "
-            "in both Docker and Local columns (see per-finding notes) — not regressions."
-        )
-    body = "\n".join(lines)
-    if notes:
-        body += "\n\n" + "\n".join(notes)
-    return "<details><summary>🧪 Environment Comparison</summary>\n\n" + body + "\n\n</details>\n"
 
 
 def _format_header(repo_name, pr_number, action, scan_number, timestamp):
@@ -674,16 +738,16 @@ def _format_footer(repo_name, pr_number, scan_duration):
         ),
     ]
     if repo_name and pr_number:
-        lines.append(f"🔍 SARIF alerts: [Security → Code scanning](https://github.com/{repo_name}/security/code-scanning) | ✅ Check: `ai-risk-guard/validation` in [Checks](https://github.com/{repo_name}/pull/{pr_number}/checks) | 📊 Dashboard: local instance")
+        lines.append(f"✅ Check: `ai-risk-guard/validation` in [Checks](https://github.com/{repo_name}/pull/{pr_number}/checks) | 📊 Dashboard: local instance")
     else:
-        lines.append("🔍 SARIF alerts: Security → Code scanning | ✅ Check: `ai-risk-guard/validation` in Checks | 📊 Dashboard: local instance")
+        lines.append("✅ Check: `ai-risk-guard/validation` in Checks | 📊 Dashboard: local instance")
     lines.append("💡 **Feedback**: React with 🚀 to accept a patch or 👎 to reject it.")
     return "\n".join(lines)
 
 
 def format_report(results, scan_number: int = 1, repo_name: str | None = None, rate_limited: bool = False, action: str | None = None, pr_number: int | None = None, scan_duration: float | None = None, previous_scan_summary: dict | None = None, commit_sha: str | None = None, scan_mode: str | None = None, llm_summary: str | None = None):
     """Build a professional PR comment with collapsible finding cards."""
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M IST")
 
     new_results = _sort_findings([r for r in results if r.get("vulnerability", {}).get("is_new", True)])
     legacy_results = _sort_findings([r for r in results if not r.get("vulnerability", {}).get("is_new", True)])
@@ -765,6 +829,7 @@ def format_report(results, scan_number: int = 1, repo_name: str | None = None, r
             "quality_score": r.get("quality_score", 0),
             "candidate_id": r.get("candidate_id", "unknown"),
             "candidate_source": r.get("candidate_source", ""),
+            "result": r,
         })
 
     if patched_files:
@@ -790,17 +855,18 @@ def format_report(results, scan_number: int = 1, repo_name: str | None = None, r
                 report += f"```diff\n{hunks}\n```\n"
             else:
                 report += f"```diff\n{info['diff']}\n```\n"
+            first_result = info['findings'][0].get("result") if info['findings'] else None
+            first_test_results = ((first_result or {}).get("validation") or {}).get("test_results") or {}
+            if first_test_results and _regression_explanation(first_test_results):
+                details_block = _format_regression_details(first_result)
+                if details_block:
+                    report += f"\n<details><summary>🧪 Regression test details</summary>\n\n{details_block}\n\n</details>\n"
             report += "</details>\n"
 
     compliance_section = _format_compliance(results)
     if compliance_section:
         report += "\n---\n"
         report += "\n" + compliance_section
-
-    comparison_section = _format_env_comparison(results, scan_mode)
-    if comparison_section:
-        report += "\n---\n"
-        report += "\n" + comparison_section
 
     trend_section = _format_trend(previous_scan_summary)
     if trend_section:
@@ -1022,9 +1088,9 @@ def _finding_check_status(result: dict) -> tuple[str, str]:
 
     tests_passed = test_results.get("success") is True
     tests_skipped = test_results.get("skipped") is True
-    ran_local = bool(
-        test_results.get("docker_unavailable")
-        or test_results.get("mode") == "local"
+    infra_unavailable = bool(
+        test_results.get("image_unavailable")
+        or test_results.get("mode") == "unavailable"
     )
 
     syntax_ok = (details.get("syntax") or {}).get("success") is True
@@ -1032,14 +1098,16 @@ def _finding_check_status(result: dict) -> tuple[str, str]:
 
     if tests_skipped:
         return "inconclusive", f"{label} tests skipped (no confirmation)"
+    if infra_unavailable:
+        if validation.get("static_only"):
+            return "inconclusive", f"{label} validated statically only (Docker unavailable)"
+        return "inconclusive", f"{label} sandbox validation could not run (Docker unavailable)"
     if test_results.get("success") is False:
         return "failed", f"{label} applied patch failed regression tests"
     if not tests_passed:
         return "inconclusive", f"{label} test results unavailable or skipped"
     if not syntax_ok or not rescan_ok:
         return "failed", f"{label} applied patch did not clear syntax/re-scan"
-    if ran_local:
-        return "inconclusive", f"{label} validated via local fallback (Docker unavailable)"
     return "ok", f"{label} tests passed, syntax ok, re-scan clean"
 
 
@@ -1050,7 +1118,7 @@ def _check_conclusion(results: list, gating: bool = True) -> tuple[str, str]:
       - ``success`` — every finding has an applied patch whose regression tests
         passed, syntax is valid, and the security re-scan is clean.
       - ``neutral`` — any finding is inconclusive (tests skipped, Docker
-        unavailable / ran local, or the patch was suppressed). Never blocks.
+        unavailable, or the patch was suppressed). Never blocks.
       - ``failure`` — a patch was applied but tests failed, or the applied
         patch did not clear the re-scan or syntax gate.
 

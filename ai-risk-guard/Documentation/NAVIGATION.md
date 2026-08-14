@@ -232,7 +232,7 @@ mypy .
 
 ```
 GET  /api/health, /api/health/db, /api/health/gemini, /api/health/sandbox
-GET  /api/dashboard, /api/metrics, /api/metrics/summary, /api/metrics/prometheus
+GET  /api/dashboard, /api/metrics, /api/metrics/prometheus
 GET  /api/repos, /api/repos/<id>, /api/repos/<id>/scans, /api/repos/<id>/findings
 GET  /api/scans, /api/scans/<id>, /api/scans/<id>/findings
 GET  /api/findings (filters/limit)

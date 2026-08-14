@@ -11,6 +11,7 @@ import base64
 import functools
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import subprocess
@@ -24,6 +25,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 import requests
+from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -39,6 +41,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from app.main import AIRiskGuard
 from core.cache.test_file_cache import TestFileCache
 from core.config import config
+from core.exceptions import InputValidationError
 from core.patch.llm_patcher import is_rate_limited, reset_rate_limit_state
 from core.scanner.diff_engine import (
     DiffAwareScanner,
@@ -48,6 +51,7 @@ from core.scanner.test_file_fetcher import (
     fetch_test_dependencies,
 )
 from core.triage.llm_triage import LLMTriage
+from core.utils.validation import safe_repo_path
 from services.github.auth import (
     generate_jwt,
     get_installation_token,
@@ -63,12 +67,19 @@ from services.github.reporter import (
     upload_sarif_to_code_scanning,
 )
 from utils.db import (
+    complete_pending_validation,
+    count_ci_results_available,
     db_health,
     delete_repo_by_full_name,
     delete_repos_by_install,
+    finding_belongs_to_user,
     get_all_findings,
     get_all_scans,
     get_dashboard,
+    get_pending_scans_for_commit,
+    get_pending_validation,
+    get_pending_validation_scans,
+    get_pending_validations_for_commit,
     get_pr_findings,
     get_repo,
     get_repo_findings,
@@ -77,10 +88,14 @@ from utils.db import (
     get_scan,
     get_scan_findings,
     get_user,
-    is_repo_codeql_provisioned,
     get_user_settings,
+    has_inflight_ci_validation,
     increment_dashboard,
     init_db,
+    is_repo_codeql_provisioned,
+    mark_repo_codeql_provisioned,
+    mark_scan_validated,
+    mark_scan_validation_pending,
     record_feedback,
     record_finding,
     record_pr_finding,
@@ -88,6 +103,7 @@ from utils.db import (
     resolve_open_findings_for_pr,
     sync_user_installations,
     update_finding_status,
+    update_pending_validation_status,
     update_user_settings,
     upsert_repo,
     upsert_user,
@@ -113,10 +129,11 @@ if not app.secret_key:
     )
 app.config["MAX_CONTENT_LENGTH"] = config.app.webhook.max_request_size_bytes
 
-# Session cookie hardening
+# Session cookie hardening. Secure defaults on; set SESSION_COOKIE_SECURE=false
+# for plain-HTTP local development.
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes")
+app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() in ("1", "true", "yes")
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
@@ -137,6 +154,42 @@ def _current_github_id():
     if user:
         return user.get("github_id")
     return session.get("github_id")
+
+
+# ---------------------------------------------------------------------------
+# CSRF protection (double-submit cookie). SameSite=Strict is the primary
+# defense; this header check is defense-in-depth for browsers that ignore it.
+# ---------------------------------------------------------------------------
+@app.before_request
+def csrf_protect():
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        # The webhook is authenticated by the signed X-Hub-Signature-256 header,
+        # not by the session cookie.
+        if request.path.startswith("/webhook"):
+            return None
+        # CI-runner validation endpoints are machine-to-machine and
+        # authenticated by the X-CI-Validation-Secret shared-secret header.
+        if request.path.startswith("/api/ci-validation/"):
+            return None
+        header_token = request.headers.get("X-CSRF-Token", "")
+        cookie_token = request.cookies.get("csrf_token", "")
+        if not header_token or not cookie_token or not secrets.compare_digest(header_token, cookie_token):
+            return jsonify({"error": "CSRF token missing or invalid"}), 403
+    return None
+
+
+@app.after_request
+def add_csrf_cookie(response):
+    if not request.cookies.get("csrf_token"):
+        response.set_cookie(
+            "csrf_token",
+            secrets.token_urlsafe(32),
+            max_age=7 * 24 * 3600,
+            secure=app.config.get("SESSION_COOKIE_SECURE", True),
+            samesite=app.config.get("SESSION_COOKIE_SAMESITE", "Lax"),
+            httponly=False,
+        )
+    return response
 
 # Initialize security engines
 orchestrator = AIRiskGuard()
@@ -167,7 +220,7 @@ def add_security_headers(response):
     origin = f" {FRONTEND_ORIGIN}" if FRONTEND_ORIGIN else ""
     response.headers["Content-Security-Policy"] = (
         f"default-src 'self'{origin}; "
-        f"script-src 'self' 'unsafe-inline'{origin}; "
+        f"script-src 'self'{origin}; "
         f"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         f"font-src https://fonts.gstatic.com; "
         f"img-src 'self' data: https://avatars.githubusercontent.com"
@@ -255,6 +308,45 @@ def _run_analysis_slot(*args):
     run_async_analysis(*args)
 
 
+# 2b. GitHub API fetch with retry/backoff for transient network failures
+_RETRIABLE_NETWORK_ERRORS = (
+    requests.ConnectionError,
+    requests.Timeout,
+)
+
+
+def _github_get_with_retry(url, headers, timeout=15, attempts=3, base_delay=1.0):
+    """GET a GitHub API URL, retrying transient network errors and 5xx/429.
+
+    Retries on connection resets (``RemoteDisconnected``), timeouts, HTTP 429
+    (rate limit), and HTTP 5xx with exponential backoff. Non-retriable statuses
+    are returned immediately. Returns the response object, or None when all
+    attempts are exhausted.
+    """
+    for attempt in range(attempts):
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout)
+        except _RETRIABLE_NETWORK_ERRORS as e:
+            logger.warning(
+                f"Transient GitHub API error on attempt {attempt + 1}/{attempts}: {e}",
+                "WEBHOOK",
+            )
+            if attempt < attempts - 1:
+                time.sleep(base_delay * (2 ** attempt))
+                continue
+            return None
+        if response.status_code in (429,) or response.status_code >= 500:
+            logger.warning(
+                f"Retriable GitHub API status {response.status_code} on attempt {attempt + 1}/{attempts}",
+                "WEBHOOK",
+            )
+            if attempt < attempts - 1:
+                time.sleep(base_delay * (2 ** attempt))
+                continue
+        return response
+    return None
+
+
 # 2. Token Cache (Fix C) — keyed by installation_id for multi-tenant isolation
 token_cache: dict[str, dict] = {}
 _token_lock = threading.Lock()
@@ -290,17 +382,38 @@ _REQUIRED_ENV = {
 }
 
 
+def _production() -> bool:
+    """Whether the app is running in production mode (APP_ENV=production)."""
+    return os.environ.get("APP_ENV", "").strip().lower() == "production"
+
+
 def _check_required_env():
-    for var, purpose in _REQUIRED_ENV.items():
-        if not os.environ.get(var):
-            logger.warning(f"Missing env var {var} — required for {purpose}", "STARTUP")
+    missing_required = [var for var in _REQUIRED_ENV if not os.environ.get(var)]
+    for var in missing_required:
+        logger.warning(f"Missing env var {var} — required for {_REQUIRED_ENV[var]}", "STARTUP")
+    if not os.environ.get("FLASK_SECRET_KEY"):
+        logger.warning(
+            "Missing env var FLASK_SECRET_KEY — sessions will be invalidated on every restart",
+            "STARTUP",
+        )
     for var, note in (
         ("GEMINI_API_KEY", "LLM patch generation will fail"),
-        ("FLASK_SECRET_KEY", "sessions will be invalidated on every restart"),
         ("GITHUB_APP_SLUG", "the install-app banner link will be hidden"),
     ):
         if not os.environ.get(var):
             logger.warning(f"Missing env var {var} — {note}", "STARTUP")
+
+    if not _production():
+        return
+    missing = list(missing_required)
+    if not os.environ.get("FLASK_SECRET_KEY"):
+        missing.append("FLASK_SECRET_KEY")
+    if missing:
+        raise RuntimeError(
+            "Startup aborted: APP_ENV=production requires the following environment "
+            f"variables to be set: {', '.join(missing)}. "
+            "Configure them and restart the service."
+        )
 
 
 init_db()
@@ -333,6 +446,126 @@ if config.app.feedback.enabled:
         f"Reaction feedback poller started (every {config.app.feedback.poll_interval_seconds}s)",
         "STARTUP",
     )
+
+
+def _docker_validation_available() -> bool:
+    """Lightweight (non-provisioning) Docker + sandbox image availability check."""
+    try:
+        from core.validator.sandbox import Sandbox
+        sandbox = Sandbox()
+        return sandbox._is_docker_available() and sandbox.docker_image_available()
+    except Exception:
+        return False
+
+
+# Scans currently being re-validated (dedup across worker cycles).
+_revalidation_inflight: set[int] = set()
+
+
+def _revalidate_pending_scan(pending: dict):
+    """Re-submit a pending scan for full re-analysis (updates comment/check).
+
+    Runs the analysis on the executor (respecting the analysis capacity slot)
+    and marks the scan validated only after the re-run completes.
+    """
+    scan_id = pending.get("id")
+    if not scan_id or scan_id in _revalidation_inflight:
+        return
+    repo_id = pending.get("repo_id")
+    pr_number = pending.get("pr_number")
+    repo_name = pending.get("repo_full_name")
+    install_id = pending.get("install_id")
+    pr_title = pending.get("pr_title") or ""
+    branch = pending.get("branch") or ""
+    commit_sha = pending.get("commit_sha") or ""
+    if not (repo_id and pr_number and repo_name and install_id):
+        logger.warning(f"Skipping re-validation for scan {scan_id}: missing repo/pr/install info", "VALIDATION")
+        return
+
+    def _job():
+        try:
+            run_async_analysis(repo_name, repo_id, pr_number, pr_title, install_id, branch, commit_sha)
+            mark_scan_validated(scan_id)
+            logger.info(f"Re-validation completed for PR #{pr_number} in {repo_name} (scan {scan_id})", "VALIDATION")
+        except Exception as e:
+            logger.error(f"Re-validation failed for scan {scan_id}: {e}", "VALIDATION")
+        finally:
+            _analysis_slot.release()
+            _revalidation_inflight.discard(scan_id)
+
+    if not _analysis_slot.acquire(blocking=False):
+        logger.warning(f"Re-validation skipped — analysis capacity reached (scan {scan_id})", "VALIDATION")
+        return
+    _revalidation_inflight.add(scan_id)
+    try:
+        executor.submit(_job)
+    except Exception:
+        _analysis_slot.release()
+        _revalidation_inflight.discard(scan_id)
+        raise
+
+
+def _validation_worker_loop():
+    """Periodically re-validate scans that failed closed because Docker was down.
+
+    Once Docker + the sandbox image are available again, each pending scan is
+    re-run end-to-end so the existing PR comment/check pick up runtime evidence.
+    """
+    interval = config.app.validation.poll_interval_seconds
+    while True:
+        time.sleep(interval)
+        try:
+            if not config.app.validation.enabled:
+                continue
+            if not _docker_validation_available():
+                continue
+            pending = get_pending_validation_scans(config.app.validation.max_revalidations_per_cycle)
+            for scan in pending:
+                # If CI-runner validation jobs are queued/in flight for this
+                # commit, wait for their results instead of re-running here
+                # (the local Docker is still down; the CI results substitute).
+                if has_inflight_ci_validation(scan["repo_full_name"], scan["commit_sha"]):
+                    continue
+                _revalidate_pending_scan(scan)
+        except Exception as e:
+            logger.error(f"Validation poll cycle failed: {e}", "VALIDATION")
+
+
+if config.app.validation.enabled:
+    threading.Thread(target=_validation_worker_loop, daemon=True, name="validation-poller").start()
+    logger.info(
+        f"Deferred re-validation worker started (every {config.app.validation.poll_interval_seconds}s)",
+        "STARTUP",
+    )
+
+
+def dispatch_pending_ci_validation(repo_full_name: str, pr_number: int, commit_sha: str):
+    """Dispatch captured candidates to the CI runner (best-effort).
+
+    Called once per scan completion. Jobs captured for this commit while the
+    sandbox failed closed are sent to the workflow repo via
+    ``repository_dispatch`` and marked ``dispatched``. Never raises.
+    """
+    if not commit_sha:
+        return
+    try:
+        from services.github.ci_dispatch import (
+            ci_validation_configured,
+            dispatch_validation_jobs,
+        )
+        if not ci_validation_configured():
+            return
+        jobs = get_pending_validations_for_commit(
+            repo_full_name, commit_sha, statuses=["pending"]
+        )
+        if not jobs:
+            return
+        job_ids = [j["id"] for j in jobs]
+        if dispatch_validation_jobs(repo_full_name, pr_number, commit_sha, job_ids):
+            for job_id in job_ids:
+                update_pending_validation_status(job_id, "dispatched")
+    except Exception as e:
+        logger.error(f"CI validation dispatch failed: {e}", "WEBHOOK")
 
 # =========================================================
 # HELPERS
@@ -490,7 +723,13 @@ def run_async_analysis(repo_name, repo_id, pr_number, pr_title, installation_id,
         max_pages = 10  # safety limit (1000 files)
         while page <= max_pages:
             files_url = f"https://api.github.com/repos/{repo_name}/pulls/{pr_number}/files?per_page=100&page={page}"
-            response = requests.get(files_url, headers=headers, timeout=15)
+            response = _github_get_with_retry(files_url, headers)
+
+            if response is None:
+                logger.error("Failed to fetch PR files after retries", "WEBHOOK")
+                if scan_total:
+                    scan_total.labels(status="failure").inc()
+                return
 
             if response.status_code != 200:
                 logger.error(f"Failed to fetch PR files: {response.text}", "WEBHOOK")
@@ -546,7 +785,11 @@ def run_async_analysis(repo_name, repo_id, pr_number, pr_title, installation_id,
             file_data = content_res.json()
             raw_content = base64.b64decode(file_data.get("content", "")).decode("utf-8", errors="ignore")
 
-            temp_file_path = os.path.join(temp_dir, filename.replace("/", os.sep))
+            try:
+                temp_file_path = safe_repo_path(temp_dir, filename)
+            except InputValidationError as e:
+                logger.warning(f"Skipping file with unsafe path '{filename}': {e}", "WEBHOOK")
+                return
             os.makedirs(os.path.dirname(temp_file_path), exist_ok=True)
             with open(temp_file_path, "w", encoding="utf-8") as f:
                 f.write(raw_content)
@@ -562,7 +805,13 @@ def run_async_analysis(repo_name, repo_id, pr_number, pr_title, installation_id,
                     commit_sha=commit_sha or "",
                 )
                 if test_content and test_path:
-                    test_temp_path = os.path.join(temp_dir, test_path.replace("/", os.sep))
+                    try:
+                        test_temp_path = safe_repo_path(temp_dir, test_path)
+                    except InputValidationError as e:
+                        logger.warning(f"Skipping test file with unsafe path '{test_path}': {e}", "WEBHOOK")
+                        test_content = None
+                        test_path = None
+                if test_content and test_path:
                     os.makedirs(os.path.dirname(test_temp_path), exist_ok=True)
                     logger.info(f"Saved test file: {test_temp_path}", "WEBHOOK")
                     with open(test_temp_path, "w", encoding="utf-8") as tf:
@@ -579,7 +828,11 @@ def run_async_analysis(repo_name, repo_id, pr_number, pr_title, installation_id,
                         commit_sha=commit_sha or "",
                     )
                     for dep in test_deps:
-                        dep_path = os.path.join(temp_dir, dep["path"].replace("/", os.sep))
+                        try:
+                            dep_path = safe_repo_path(temp_dir, dep["path"])
+                        except InputValidationError as e:
+                            logger.warning(f"Skipping test dependency with unsafe path '{dep['path']}': {e}", "WEBHOOK")
+                            continue
                         os.makedirs(os.path.dirname(dep_path), exist_ok=True)
                         with open(dep_path, "w", encoding="utf-8") as df:
                             df.write(dep["content"])
@@ -727,6 +980,15 @@ def run_async_analysis(repo_name, repo_id, pr_number, pr_title, installation_id,
                 max_risk=max(action_risks, default=0),
                 duration_ms=int((time.time() - scan_start) * 1000),
             )
+            # Deferred re-validation: if Docker was unavailable during this scan
+            # the sandbox stages failed closed, so queue the scan for a re-run
+            # once Docker is available again — unless CI-runner validation has
+            # already supplied runtime evidence for this commit.
+            if not _docker_validation_available():
+                if count_ci_results_available(repo_name, commit_sha or "") > 0:
+                    mark_scan_validated(scan_id)
+                else:
+                    mark_scan_validation_pending(scan_id)
             for f in findings:
                 v = f.get("vulnerability", {})
                 record_finding(
@@ -735,17 +997,26 @@ def run_async_analysis(repo_name, repo_id, pr_number, pr_title, installation_id,
                     severity=v.get("severity", "MEDIUM"),
                     risk_score=f.get("risk", 0),
                     file_path=v.get("file", ""),
-                    line_number=v.get("line", 0),
+line_number=v.get("line", 0),
                     is_new=1 if v.get("is_new") else 0,
                 )
         else:
             logger.info("No vulnerabilities found — SARIF upload skipped", "WEBHOOK")
-            record_scan(
+            scan_id = record_scan(
                 repo_id=repo_id, pr_number=pr_number, pr_title=pr_title,
                 branch=branch_name, commit_sha=commit_sha or "",
                 findings_count=0, max_risk=0,
                 duration_ms=int((time.time() - scan_start) * 1000),
             )
+            if not _docker_validation_available():
+                if count_ci_results_available(repo_name, commit_sha or "") > 0:
+                    mark_scan_validated(scan_id)
+                else:
+                    mark_scan_validation_pending(scan_id)
+
+        # CI-runner fallback (Phase E): dispatch any candidates captured while
+        # the sandbox failed closed to the GitHub-hosted validation runner.
+        dispatch_pending_ci_validation(repo_name, pr_number, commit_sha or "")
 
         # Record scan success and duration
         if scan_total:
@@ -835,7 +1106,31 @@ def health():
             "/auth/logout": "GET - Logout",
             "/api/me": "GET - Current user info"
         }
-    })
+})
+
+
+@app.route("/api/health/ready", methods=["GET"])
+def health_ready():
+    """Readiness probe for platform health checks (Nginx, uptime monitors).
+
+    Unauthenticated. Returns 200 only when the SQLite database is writable;
+    503 otherwise. Sandbox/GitHub availability is reported for observability
+    but does not gate readiness — the app fails closed (or uses the CI-runner
+    fallback) when the sandbox is unavailable.
+    """
+    from core.validator.sandbox import Sandbox
+    db_ok = db_health()
+    sandbox = Sandbox()
+    docker_available = sandbox._is_docker_available()
+    payload = {
+        "status": "ready" if db_ok else "not_ready",
+        "db_writable": db_ok,
+        "sandbox_available": docker_available and sandbox.docker_image_available(),
+        "github_configured": bool(
+            GITHUB_WEBHOOK_SECRET and GITHUB_APP_ID and GITHUB_PRIVATE_KEY
+        ),
+    }
+    return jsonify(payload), 200 if db_ok else 503
 
 
 @app.route("/auth/login", methods=["GET"])
@@ -937,11 +1232,11 @@ def auth_callback():
         "avatar_url": avatar_url,
     }
     session["github_id"] = github_id
-    session["github_access_token"] = access_token
+    session["github_access_token"] = _encrypt_token(access_token)
     if token_data.get("expires_in"):
         session["github_token_expires_at"] = time.time() + token_data["expires_in"]
     if token_data.get("refresh_token"):
-        session["github_refresh_token"] = token_data["refresh_token"]
+        session["github_refresh_token"] = _encrypt_token(token_data["refresh_token"])
 
     # Record which installations this user can access and their repos so the
     # dashboard and scan attribution are per-user from the first request.
@@ -1024,6 +1319,116 @@ def api_scan(scan_id):
     return jsonify({"scan": scan})
 
 
+@app.route("/api/scans/<int:scan_id>/revalidate", methods=["POST"])
+@login_required
+def api_scan_revalidate(scan_id):
+    """Queue a scan for re-validation (e.g. it failed closed because Docker was down).
+
+    Marks the scan pending so the background worker re-runs it once Docker is
+    available, then kicks an immediate pass of the worker logic.
+    """
+    if not config.app.validation.enabled:
+        return jsonify({"error": "Deferred re-validation is disabled"}), 400
+    scan = get_scan(scan_id, _current_github_id())
+    if not scan:
+        return jsonify({"error": "Scan not found"}), 404
+    mark_scan_validation_pending(scan_id)
+    try:
+        _revalidate_pending_scan(scan)
+    except Exception as e:
+        logger.error(f"Revalidate endpoint failed for scan {scan_id}: {e}", "VALIDATION")
+    return jsonify({"status": "queued", "message": "Scan queued for re-validation"}), 202
+
+
+def _ci_validation_auth_ok() -> bool:
+    """Validate the shared secret header on CI-runner endpoints."""
+    from services.github.ci_dispatch import ci_secret
+    secret = ci_secret()
+    if not secret:
+        return False
+    provided = request.headers.get("X-CI-Validation-Secret") or ""
+    return hmac.compare_digest(provided, secret)
+
+
+@app.route("/api/ci-validation/jobs/<int:job_id>", methods=["GET"])
+def ci_validation_job(job_id):
+    """Serve a pending-validation job payload to the GitHub-hosted runner.
+
+    Auth: ``X-CI-Validation-Secret`` header (shared secret, machine-to-machine).
+    """
+    if not _ci_validation_auth_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    row = get_pending_validation(job_id)
+    if not row:
+        return jsonify({"error": "unknown job"}), 404
+    try:
+        extra_files = json.loads(row.get("extra_files") or "[]")
+    except (ValueError, TypeError):
+        extra_files = []
+    return jsonify({
+        "job_id": row["id"],
+        "repo_full_name": row["repo_full_name"],
+        "pr_number": row["pr_number"],
+        "commit_sha": row["commit_sha"],
+        "source_filename": row["source_filename"],
+        "candidate_id": row["candidate_id"],
+        "patched_code": row["patched_code"],
+        "test_filename": row["test_filename"],
+        "test_content": row["test_content"],
+        "extra_files": extra_files,
+        "scan_mode": row["scan_mode"],
+        "sandbox_network": row["sandbox_network"],
+        "status": row["status"],
+    })
+
+
+@app.route("/api/ci-validation/results", methods=["POST"])
+def ci_validation_results():
+    """Receive CI-runner validation results and re-validate affected scans.
+
+    Body: ``{job_id, status?, sandbox_res?, test_results?}``. A completed
+    result triggers a re-analysis of any pending scan for the same commit so
+    the PR comment/check pick up the runtime evidence even while Docker is down.
+    """
+    if not _ci_validation_auth_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id required"}), 400
+    row = get_pending_validation(int(job_id))
+    if not row:
+        return jsonify({"error": "unknown job"}), 404
+    status = data.get("status") or "completed"
+    try:
+        from core.ci.validation import build_result_json
+        result_json = build_result_json(
+            data.get("sandbox_res") or {},
+            data.get("test_results") or {},
+            row.get("patched_code") or "",
+        )
+    except Exception as e:
+        logger.error(f"CI results serialization failed for job {job_id}: {e}", "CI_VALIDATION")
+        result_json = ""
+    complete_pending_validation(int(job_id), result_json, status=status)
+    logger.info(
+        f"CI validation result received for job {job_id} ({status}) in "
+        f"{row['repo_full_name']}@{row['commit_sha']}",
+        "CI_VALIDATION",
+    )
+    if status == "completed":
+        pending_scans = get_pending_scans_for_commit(row["repo_full_name"], row["commit_sha"])
+        for scan in pending_scans:
+            try:
+                _revalidate_pending_scan(scan)
+            except Exception as e:
+                logger.error(
+                    f"CI-triggered re-validation failed for scan {scan.get('id')}: {e}",
+                    "CI_VALIDATION",
+                )
+    return jsonify({"ok": True})
+
+
 @app.route("/api/scans/<int:scan_id>/findings", methods=["GET"])
 @login_required
 def api_scan_findings(scan_id):
@@ -1087,6 +1492,8 @@ def api_repo_enable_codeql(repo_id):
         return jsonify({"error": "Repo not found"}), 404
     if not getattr(config.app.codeql, "enabled", True):
         return jsonify({"error": "CodeQL provisioning is disabled by config"}), 400
+    if not _codeql_enabled_for_owner(repo_id):
+        return jsonify({"error": "CodeQL feature is disabled in Settings"}), 400
 
     full_name = repo.get("full_name")
     install_id = repo.get("install_id")
@@ -1106,6 +1513,8 @@ def api_repo_enable_codeql(repo_id):
             default_branch=repo.get("default_branch"),
             language=repo.get("language"),
         )
+        if pr_url:
+            mark_repo_codeql_provisioned(full_name)
         _clear_codeql_attempted(full_name)
     except Exception as e:
         logger.error(f"CodeQL enable failed for {full_name}: {e}", "CODEQL")
@@ -1143,6 +1552,9 @@ def api_all_scans():
 @login_required
 def api_finding_status(finding_id):
     """Resolve, dismiss, or reopen a finding."""
+    uid = _current_github_id()
+    if uid is None or not finding_belongs_to_user(finding_id, uid):
+        return jsonify({"error": "Finding not found"}), 404
     data = request.get_json(silent=True) or {}
     status = (data.get("status") or "").strip().lower()
     if status not in {"open", "resolved", "dismissed"}:
@@ -1176,6 +1588,20 @@ def _mark_codeql_attempted(full_name: str) -> bool:
         if full_name in _codeql_lazy_attempted:
             return False
         _codeql_lazy_attempted.add(full_name)
+        return True
+
+
+def _codeql_enabled_for_owner(repo_id: int) -> bool:
+    """Whether the repo's owning user has the CodeQL feature enabled.
+
+    Unattributed repos (no user_id) fall back to the system default (True).
+    """
+    try:
+        repo_row = get_repo(repo_id)
+        owner_uid = repo_row.get("user_id") if repo_row else None
+        return bool(get_user_settings(owner_uid).get("codeql_enabled", True))
+    except Exception as e:
+        logger.warning(f"Could not resolve CodeQL preference for repo {repo_id}: {e}", "CODEQL")
         return True
 
 
@@ -1217,14 +1643,46 @@ def _provision_codeql_for_repos(repos, installation_id, require_auto_provision: 
         if not full_name:
             continue
         try:
-            create_codeql_pr(
+            pr_url = create_codeql_pr(
                 full_name,
                 access_token,
                 default_branch=repo.get("default_branch"),
                 language=repo.get("language"),
             )
+            if pr_url:
+                mark_repo_codeql_provisioned(full_name)
         except Exception as e:
             logger.error(f"CodeQL provisioning failed for {full_name}: {e}", "CODEQL")
+
+
+_token_fernet = None
+
+
+def _get_token_fernet() -> Fernet:
+    """Return a Fernet instance keyed off FLASK_SECRET_KEY (stable across restarts)."""
+    global _token_fernet
+    if _token_fernet is None:
+        secret = app.secret_key
+        if not secret:
+            raise RuntimeError("FLASK_SECRET_KEY not configured")
+        key_material = secret.encode("utf-8") if isinstance(secret, str) else bytes(secret)
+        key = hashlib.sha256(key_material).digest()
+        _token_fernet = Fernet(base64.urlsafe_b64encode(key))
+    return _token_fernet
+
+
+def _encrypt_token(value: str) -> str:
+    return _get_token_fernet().encrypt(value.encode("utf-8")).decode("ascii")
+
+
+def _decrypt_token(value) -> str | None:
+    """Decrypt a session token; returns None when absent or tampered."""
+    if not value:
+        return None
+    try:
+        return _get_token_fernet().decrypt(value.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, TypeError):
+        return None
 
 
 def _clear_session_token():
@@ -1262,23 +1720,24 @@ def _get_valid_access_token():
     """Return a usable GitHub user access token, refreshing when possible.
 
     GitHub App user tokens expire (~8h by default) only when the app has token
-    expiration enabled; this is a no-op otherwise.
+    expiration enabled; this is a no-op otherwise. Tokens are stored encrypted
+    in the session (see _encrypt_token/_decrypt_token).
     """
-    token = session.get("github_access_token")
+    token = _decrypt_token(session.get("github_access_token"))
     if not token:
         return None
 
     expires_at = session.get("github_token_expires_at")
-    refresh_token = session.get("github_refresh_token")
+    refresh_token = _decrypt_token(session.get("github_refresh_token"))
     if expires_at is not None and time.time() >= expires_at:
         if refresh_token:
             refreshed = _refresh_github_token(refresh_token)
             if refreshed:
                 token = refreshed["access_token"]
-                session["github_access_token"] = token
+                session["github_access_token"] = _encrypt_token(token)
                 session["github_token_expires_at"] = time.time() + refreshed.get("expires_in", 28800)
                 if refreshed.get("refresh_token"):
-                    session["github_refresh_token"] = refreshed["refresh_token"]
+                    session["github_refresh_token"] = _encrypt_token(refreshed["refresh_token"])
                 return token
         _clear_session_token()
         logger.warning("GitHub token expired and could not be refreshed — cleared session token", "AUTH")
@@ -1404,18 +1863,11 @@ def api_dashboard():
 
 
 @app.route("/api/metrics/prometheus", methods=["GET"])
+@login_required
 def prometheus_metrics():
     """Returns Prometheus metrics in exposition format."""
     from app.metrics import get_content_type, get_metrics
     return get_metrics(), 200, {'Content-Type': get_content_type()}
-
-
-@app.route("/api/metrics/summary", methods=["GET"])
-@login_required
-def metrics_summary():
-    """Returns an aggregated JSON summary derived from in-process metrics."""
-    from app.metrics import build_metrics_summary
-    return jsonify(build_metrics_summary())
 
 
 @app.route("/api/policy", methods=["GET"])
@@ -1428,6 +1880,7 @@ def get_policy_api():
 
 
 @app.route("/api/health/gemini", methods=["GET"])
+@login_required
 def gemini_health():
     """Lightweight Gemini connectivity check (env var only — no API call)."""
     configured = bool(os.environ.get("GEMINI_API_KEY"))
@@ -1438,6 +1891,7 @@ def gemini_health():
 
 
 @app.route("/api/health/db", methods=["GET"])
+@login_required
 def health_db():
     """Writable SQLite connectivity check — useful for platform health checks."""
     ok = db_health()
@@ -1474,16 +1928,22 @@ def update_settings_api():
     data = request.get_json(silent=True) or {}
     scan_mode = data.get("scan_mode")
     sandbox_network = data.get("sandbox_network")
-    if scan_mode is None and sandbox_network is None:
-        return jsonify({"error": "Provide scan_mode and/or sandbox_network"}), 400
+    codeql_enabled = data.get("codeql_enabled")
+    if scan_mode is None and sandbox_network is None and codeql_enabled is None:
+        return jsonify({"error": "Provide scan_mode, sandbox_network and/or codeql_enabled"}), 400
+    if codeql_enabled is not None and not isinstance(codeql_enabled, bool):
+        return jsonify({"error": "codeql_enabled must be a boolean"}), 400
     try:
-        settings = update_user_settings(uid, scan_mode=scan_mode, sandbox_network=sandbox_network)
+        settings = update_user_settings(
+            uid, scan_mode=scan_mode, sandbox_network=sandbox_network, codeql_enabled=codeql_enabled,
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"settings": settings, "saved": True})
 
 
 @app.route("/api/health/sandbox", methods=["GET"])
+@login_required
 def health_sandbox():
     """Sandbox execution mode and Docker status (non-provisioning check)."""
     from core.validator.sandbox import Sandbox
@@ -1493,7 +1953,7 @@ def health_sandbox():
     return jsonify({
         "docker_available": docker_available,
         "image_ready": image_ready,
-        "mode": "docker" if docker_available and image_ready else "local",
+        "mode": "docker" if docker_available and image_ready else "unavailable",
     })
 
 
@@ -1507,6 +1967,7 @@ def dashboard():
 
 @app.route("/api/feedback", methods=["POST"])
 @app.route("/feedback", methods=["POST"])
+@login_required
 def feedback():
     """Record developer feedback (ACCEPTED/REJECTED) with optional user attribution."""
     try:
@@ -1644,6 +2105,14 @@ def github_webhook():
                 logger.error(f"Missing required webhook fields: repo={repo_name} pr={pr_number} install={installation_id}", "WEBHOOK")
                 return jsonify({"error": "Missing required fields"}), 400
 
+            # Skip the App's own CodeQL provisioning PR: it only adds workflow
+            # YAML (no .py code to scan) and its scan would otherwise fail
+            # pointlessly / spam "Analysis Failed" comments.
+            provisioning_branch = getattr(config.app.codeql, "workflow_branch", "ai-risk-guard/codeql-setup")
+            if branch_name == provisioning_branch:
+                logger.info(f"Skipping analysis for CodeQL provisioning PR #{pr_number} (branch {branch_name})", "WEBHOOK")
+                return jsonify({"status": "ignored"})
+
             # Persist repo info from webhook payload
             repo_payload = data.get("repository", {})
             upsert_repo({
@@ -1670,6 +2139,7 @@ def github_webhook():
                 action in ("opened", "synchronize", "reopened")
                 and repo_name
                 and getattr(config.app.codeql, "enabled", True)
+                and _codeql_enabled_for_owner(repo_id)  # per-user Settings toggle
                 and not is_repo_codeql_provisioned(repo_name)  # DB-persisted guard
                 and _mark_codeql_attempted(repo_name)  # in-memory session dedup
             ):
@@ -1753,11 +2223,38 @@ if __name__ == "__main__":
                     timeout=5,
                 )
                 if img_result.returncode != 0:
-                    logger.warning(
+                    # Pre-warm the sandbox image in the background so the first
+                    # scan does not pay the pull/build cost (or fail closed if
+                    # provisioning is slow).
+                    logger.info(
                         f"Docker: daemon up but sandbox image '{sandbox_image}' not found — "
-                        "will attempt provisioning (pull/build) on first scan",
+                        "pre-building in the background",
                         "STARTUP",
                     )
+
+                    def _prebuild_image():
+                        from core.validator.sandbox import Sandbox
+                        try:
+                            sandbox = Sandbox()
+                            sandbox._ensure_image_available()
+                            if sandbox.image_unavailable:
+                                logger.warning(
+                                    f"Docker: could not pre-build sandbox image '{sandbox_image}' — "
+                                    "scans will fail closed until it is available",
+                                    "STARTUP",
+                                )
+                            else:
+                                logger.info(
+                                    f"Docker: sandbox image '{sandbox_image}' pre-built",
+                                    "STARTUP",
+                                )
+                        except Exception as e:
+                            logger.warning(f"Docker: pre-build failed - {e}", "STARTUP")
+
+                    try:
+                        executor.submit(_prebuild_image)
+                    except Exception as e:
+                        logger.warning(f"Docker: could not queue pre-build - {e}", "STARTUP")
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 logger.warning(
                     "Docker: could not verify sandbox image presence", "STARTUP"
@@ -1765,13 +2262,13 @@ if __name__ == "__main__":
             except Exception as e:
                 logger.warning(f"Docker: image check failed - {e}", "STARTUP")
         else:
-            logger.warning("Docker: installed but not running (sandbox will use local fallback)", "STARTUP")
+            logger.warning("Docker: installed but not running (scans will fail closed until Docker is available)", "STARTUP")
     except FileNotFoundError:
-        logger.warning("Docker: not installed (sandbox will use local fallback)", "STARTUP")
+        logger.warning("Docker: not installed (scans will fail closed until Docker is available)", "STARTUP")
     except subprocess.TimeoutExpired:
-        logger.warning("Docker: detected but unresponsive (sandbox will use local fallback)", "STARTUP")
+        logger.warning("Docker: detected but unresponsive (scans will fail closed until Docker is available)", "STARTUP")
     except Exception as e:
-        logger.warning(f"Docker: check failed - {e} (sandbox will use local fallback)", "STARTUP")
+        logger.warning(f"Docker: check failed - {e} (scans will fail closed until Docker is available)", "STARTUP")
 
     sc = config.app.server
     port = int(os.environ.get("PORT", sc.port))

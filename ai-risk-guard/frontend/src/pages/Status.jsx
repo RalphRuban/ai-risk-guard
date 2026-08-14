@@ -102,11 +102,11 @@ export default function Status() {
         />
         <StatusRow
           label="Sandbox"
-          value={health?.sandbox?.mode || 'unknown'}
+          value={health?.sandbox?.mode === 'docker' ? 'docker' : (health?.sandbox?.mode || 'unknown')}
           ok={health?.sandbox?.mode === 'docker'}
           hint={health?.sandbox?.mode === 'docker'
             ? 'Isolated Docker execution available'
-            : 'Docker unavailable — using hardened local fallback'}
+            : 'Docker unavailable — scans fail closed until Docker is available'}
         />
         {health?.sandbox && (
           <div className="p-4 rounded-lg text-xs" style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
@@ -117,7 +117,7 @@ export default function Status() {
 
       {!allOk && (
         <p className="mt-6 text-sm" style={{ color: 'var(--text-muted)' }}>
-          Degraded services may still operate with reduced capability (e.g. local sandbox fallback, no LLM patch generation).
+          Degraded services may still operate with reduced capability (e.g. sandbox scans fail closed, no LLM patch generation).
         </p>
       )}
     </div>

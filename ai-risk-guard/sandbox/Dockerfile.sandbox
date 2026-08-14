@@ -1,5 +1,6 @@
 # -------- BASE IMAGE -------- #
-FROM python:3.10-slim-bookworm
+# Pinned by digest so a tampered/mutated base image is never accepted.
+FROM python:3.10-slim-bookworm@sha256:7ed92b32353e8d8bd865b5ba811e0315d3999c3b57b1c2df2b504a359d4a1707
 
 # -------- WORK DIRECTORY -------- #
 WORKDIR /app

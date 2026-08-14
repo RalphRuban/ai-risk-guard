@@ -62,3 +62,37 @@ def safe_filename(filename: str) -> str:
     sanitized = os.path.basename(filename)
     sanitized = _NULL_BYTE.sub("", sanitized)
     return sanitized
+
+
+def safe_repo_path(root_dir: str, filename: str) -> str:
+    """Return an absolute path inside *root_dir* for a repo-relative filename.
+
+    Rejects null bytes, absolute paths, drive-relative paths, and any
+    traversal component that would escape *root_dir*. Raises
+    InputValidationError on invalid input. This is a containment check (belt
+    and braces over :func:`validate_file_path`) and must be used for every
+    path derived from attacker-controlled filenames (e.g. GitHub PR files).
+    """
+    if not isinstance(filename, str) or not filename.strip():
+        raise InputValidationError("filename must be a non-empty string")
+
+    if _NULL_BYTE.search(filename):
+        raise InputValidationError("filename contains null byte")
+
+    normalized = os.path.normpath(filename)
+    if normalized in ("", ".", ".."):
+        raise InputValidationError("invalid filename")
+    if os.path.isabs(normalized) or normalized.startswith(".."):
+        raise InputValidationError("path traversal detected in filename")
+    # Windows drive-relative ("C:x") and UNC prefixes
+    if re.match(r"^[a-zA-Z]:", normalized) or normalized.startswith("\\\\"):
+        raise InputValidationError("path traversal detected in filename")
+
+    root = os.path.normpath(root_dir)
+    joined = os.path.join(root, normalized)
+    try:
+        if os.path.commonpath([root, joined]) != root:
+            raise InputValidationError("path escapes sandbox root")
+    except ValueError:
+        raise InputValidationError("path escapes sandbox root")
+    return joined

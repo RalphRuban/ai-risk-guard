@@ -5,6 +5,21 @@ const api = axios.create({
   timeout: 30000,
 })
 
+function getCsrfToken() {
+  if (typeof document === 'undefined') return ''
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+api.interceptors.request.use((config) => {
+  const method = (config.method || '').toLowerCase()
+  if (['post', 'put', 'patch', 'delete'].includes(method)) {
+    const token = getCsrfToken()
+    if (token) config.headers['X-CSRF-Token'] = token
+  }
+  return config
+})
+
 async function sessionAlive() {
   try {
     const { data } = await api.get('/me')
@@ -33,11 +48,6 @@ api.interceptors.response.use(
 
 export async function getDashboard() {
   const { data } = await api.get('/dashboard')
-  return data
-}
-
-export async function getMetrics() {
-  const { data } = await api.get('/metrics')
   return data
 }
 
@@ -96,8 +106,8 @@ export async function getScanFindings(scanId) {
   return data.findings
 }
 
-export async function getMetricsSummary() {
-  const { data } = await api.get('/metrics/summary')
+export async function revalidateScan(scanId) {
+  const { data } = await api.post(`/scans/${scanId}/revalidate`)
   return data
 }
 

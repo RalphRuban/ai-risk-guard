@@ -60,8 +60,8 @@ def workflow_exists(repository, token):
         return False
 
 
-def provisioning_pr_open(repository, token):
-    """Return True when a provisioning PR is already open for this repo."""
+def _open_provisioning_pr(repository, token):
+    """Return the open provisioning PR dict for this repo, or None."""
     try:
         owner = repository.split("/")[0]
         head = f"{owner}:{config.app.codeql.workflow_branch}"
@@ -77,11 +77,17 @@ def provisioning_pr_open(repository, token):
                 f"CodeQL PR lookup returned {response.status_code}: {response.text[:200]}",
                 "CODEQL",
             )
-            return False
-        return len(response.json()) > 0
+            return None
+        pulls = response.json()
+        return pulls[0] if pulls else None
     except Exception as e:
         logger.warning(f"CodeQL PR lookup failed: {e}", "CODEQL")
-        return False
+        return None
+
+
+def provisioning_pr_open(repository, token):
+    """Return True when a provisioning PR is already open for this repo."""
+    return _open_provisioning_pr(repository, token) is not None
 
 
 def _resolve_default_branch(repository, token, default_branch=None):
@@ -174,20 +180,72 @@ def _put_file(repository, token, path, content, branch):
     return True
 
 
+def _map_language_name(name):
+    """Map a single GitHub language name to its CodeQL language (or None).
+
+    Unsupported or unknown languages return None so the caller can decide how
+    to proceed instead of blindly enabling languages with no matching code.
+    """
+    if not name:
+        return None
+    lang = str(name).lower()
+    if "python" in lang:
+        return "python"
+    if "javascript" in lang or "typescript" in lang or "node" in lang:
+        return "javascript"
+    if "java" in lang or "kotlin" in lang:
+        return "java"
+    if "c#" in lang or "csharp" in lang:
+        return "csharp"
+    if "c++" in lang or "cpp" in lang:
+        return "cpp"
+    if "go" in lang or "golang" in lang:
+        return "go"
+    if "ruby" in lang:
+        return "ruby"
+    if "swift" in lang:
+        return "swift"
+    return None
+
+
 def _map_languages(language):
     """Map a GitHub language hint to a CodeQL language matrix.
 
-    Python repos only build a Python matrix, JS/TS repos only a JavaScript
-    matrix; an unknown or missing language keeps the full [python, javascript]
-    matrix so analysis is never silently skipped.
+    A known hint maps to a single CodeQL language; an unknown or missing hint
+    returns an empty list so the caller falls back to the repo's actual code
+    composition (never the full [python, javascript] guess that produced
+    failing matrix jobs on single-language repos).
     """
-    if language:
-        lang = str(language).lower()
-        if "python" in lang:
-            return ["python"]
-        if "javascript" in lang or "typescript" in lang or "node" in lang:
-            return ["javascript"]
-    return ["python", "javascript"]
+    codeql = _map_language_name(language)
+    return [codeql] if codeql else []
+
+
+def _detect_repo_languages(repository, token):
+    """Detect CodeQL languages from the repo's actual code composition.
+
+    Queries the repository's language breakdown and maps each language to its
+    CodeQL equivalent. Returns an empty list on any error (caller decides the
+    fallback). Never raises.
+    """
+    try:
+        url = f"{API_BASE}/repos/{repository}/languages"
+        response = requests.get(url, headers=_headers(token), timeout=30)
+        if response.status_code != 200:
+            logger.warning(
+                f"CodeQL language detection returned {response.status_code}: {response.text[:200]}",
+                "CODEQL",
+            )
+            return []
+        breakdown = response.json() or {}
+        languages = []
+        for name in sorted(breakdown, key=breakdown.get, reverse=True):
+            codeql = _map_language_name(name)
+            if codeql and codeql not in languages:
+                languages.append(codeql)
+        return languages
+    except Exception as e:
+        logger.warning(f"CodeQL language detection failed: {e}", "CODEQL")
+        return []
 
 
 def _build_pr_body(languages):
@@ -197,7 +255,7 @@ def _build_pr_body(languages):
 
 What it does:
 - Adds the standard CodeQL workflow (init → autobuild → analyze) for **{human}**.
-- Adds a CodeQL config that ignores `tests/**` and demo files.
+- Adds a CodeQL config that skips test files (`tests/**`, `**/test_*.py`).
 - Analysis runs on **GitHub's hosted runners** — no extra infrastructure required.
 
 Once merged, CodeQL results appear under **Security → Code scanning** on every push and pull request to the default branch, alongside AI Risk Guard's findings.
@@ -224,20 +282,29 @@ def create_codeql_pr(repository, token, default_branch=None, language=None):
         logger.info(f"CodeQL already enabled on {repository} — skipping", "CODEQL")
         return None
 
-    if provisioning_pr_open(repository, token):
-        logger.info(f"CodeQL provisioning PR already open on {repository} — skipping", "CODEQL")
-        return None
+    # If a provisioning PR is already open, refresh its files in place so the
+    # PR self-heals when templates change (e.g. CodeQL action version bumps).
+    existing_pr = _open_provisioning_pr(repository, token)
 
     default_branch = _resolve_default_branch(repository, token, default_branch)
     languages = _map_languages(language)
+    if not languages:
+        # Unknown hint — fall back to the repo's actual code composition.
+        detected = _detect_repo_languages(repository, token)
+        if detected:
+            languages = detected
+    if not languages:
+        logger.warning(f"No detectable languages for {repository} — skipping CodeQL provisioning", "CODEQL")
+        return None
     branch = config.app.codeql.workflow_branch
     try:
-        base_sha = _get_default_branch_sha(repository, token, default_branch)
-        if not base_sha:
-            return None
+        if existing_pr is None:
+            base_sha = _get_default_branch_sha(repository, token, default_branch)
+            if not base_sha:
+                return None
 
-        if not _create_branch(repository, token, base_sha):
-            return None
+            if not _create_branch(repository, token, base_sha):
+                return None
 
         workflow_yaml = _read_template("codeql.yml")
         workflow_yaml = (
@@ -249,6 +316,11 @@ def create_codeql_pr(repository, token, default_branch=None, language=None):
             return None
         if not _put_file(repository, token, CONFIG_PATH, config_yaml, branch):
             return None
+
+        if existing_pr is not None:
+            pr_url = existing_pr.get("html_url") or ""
+            logger.info(f"CodeQL provisioning PR refreshed for {repository}: {pr_url}", "CODEQL")
+            return pr_url or None
 
         url = f"{API_BASE}/repos/{repository}/pulls"
         payload = {

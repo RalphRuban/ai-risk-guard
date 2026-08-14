@@ -355,17 +355,40 @@ class TestCheckRun:
                         "rescan": {"success": True},
                     },
                     "test_results": {
-                        "success": True,
-                        "mode": "local",
+                        "success": False,
+                        "mode": "unavailable",
                         "skipped": False,
-                        "docker_unavailable": True,
+                        "image_unavailable": True,
                     },
                 }
             )
         ]
         conclusion, summary = _check_conclusion(results)
         assert conclusion == "neutral"
-        assert "local fallback" in summary
+        assert "Docker unavailable" in summary
+
+    def test_check_conclusion_static_only_is_neutral(self):
+        results = [
+            _finding(
+                validation={
+                    "success": True,
+                    "static_only": True,
+                    "details": {
+                        "syntax": {"success": True},
+                        "rescan": {"success": True},
+                    },
+                    "test_results": {
+                        "success": False,
+                        "mode": "unavailable",
+                        "skipped": False,
+                        "image_unavailable": True,
+                    },
+                }
+            )
+        ]
+        conclusion, summary = _check_conclusion(results)
+        assert conclusion == "neutral"
+        assert "validated statically only" in summary
 
     def test_check_conclusion_patch_suppressed_is_neutral(self):
         results = [_finding(patch_suppressed=True)]

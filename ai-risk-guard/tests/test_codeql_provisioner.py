@@ -30,6 +30,12 @@ def _resp(status_code, json_data=None, text=""):
     return r
 
 
+def _csrf_headers(client):
+    client.get("/api/me")
+    cookie = client.get_cookie("csrf_token")
+    return {"X-CSRF-Token": cookie.value} if cookie else {}
+
+
 # ---------------------------------------------------------------
 # workflow_exists
 # ---------------------------------------------------------------
@@ -85,11 +91,25 @@ class TestCreateCodeqlPr:
         ):
             assert prov.create_codeql_pr("owner/repo", "token") is None
 
-    def test_skips_when_pr_open(self):
-        with patch.object(prov, "workflow_exists", return_value=False), patch.object(
-            prov, "provisioning_pr_open", return_value=True
+    def test_refreshes_files_when_pr_open(self):
+        """An open provisioning PR is updated in place, not skipped."""
+        existing = {"html_url": "https://github.com/owner/repo/pull/20"}
+        with (
+            patch.object(prov, "workflow_exists", return_value=False),
+            patch.object(prov, "_open_provisioning_pr", return_value=existing),
+            patch.object(prov, "_resolve_default_branch", return_value="main"),
+            patch.object(prov, "_put_file", return_value=True) as mock_put,
+            patch.object(prov, "_create_branch", return_value=True) as mock_branch,
+            patch.object(prov, "_get_default_branch_sha", return_value="sha") as mock_sha,
+            patch.object(prov.requests, "post") as mock_post,
         ):
-            assert prov.create_codeql_pr("owner/repo", "token") is None
+            result = prov.create_codeql_pr("owner/repo", "token", language="Python")
+
+        assert result == "https://github.com/owner/repo/pull/20"
+        assert mock_put.call_count == 2
+        mock_branch.assert_not_called()
+        mock_sha.assert_not_called()
+        mock_post.assert_not_called()
 
     def test_skips_when_disabled(self):
         with patch.object(prov.config.app.codeql, "enabled", False), patch.object(
@@ -110,7 +130,7 @@ class TestCreateCodeqlPr:
         ):
             mock_post.return_value = _resp(201, json_data={"html_url": "https://github.com/owner/repo/pull/9"})
             mock_put.return_value = _resp(201, json_data={})
-            result = prov.create_codeql_pr("owner/repo", "token", default_branch="main")
+            result = prov.create_codeql_pr("owner/repo", "token", default_branch="main", language="Python")
 
         assert result == "https://github.com/owner/repo/pull/9"
 
@@ -137,11 +157,104 @@ class TestCreateCodeqlPr:
             patch.object(prov.requests, "get", return_value=_resp(200, json_data={"object": {"sha": "s"}})),
             patch.object(prov.requests, "post", return_value=_resp(422, text="branch exists")),
         ):
-            assert prov.create_codeql_pr("owner/repo", "token") is None
+            assert prov.create_codeql_pr("owner/repo", "token", language="Python") is None
 
     def test_swallows_exceptions(self):
         with patch.object(prov.requests, "get", side_effect=Exception("boom")):
             assert prov.create_codeql_pr("owner/repo", "token") is None
+
+
+# ---------------------------------------------------------------
+# Templates (CodeQL workflow / config content)
+# ---------------------------------------------------------------
+
+class TestCodeqlTemplates:
+    def test_workflow_uses_codeql_action_v4(self):
+        yaml = prov._read_template("codeql.yml")
+        assert "github/codeql-action/init@v4" in yaml
+        assert "github/codeql-action/autobuild@v4" in yaml
+        assert "github/codeql-action/analyze@v4" in yaml
+        assert "@v3" not in yaml
+
+    def test_workflow_uses_checkout_v5(self):
+        yaml = prov._read_template("codeql.yml")
+        assert "actions/checkout@v5" in yaml
+        assert "checkout@v4" not in yaml
+
+    def test_config_does_not_ignore_demo_files(self):
+        yaml = prov._read_template("codeql-config.yml")
+        assert "tests/**" in yaml
+        assert "**/test_*.py" in yaml
+        assert "demo" not in yaml
+
+
+# ---------------------------------------------------------------
+# _map_languages / _detect_repo_languages
+# ---------------------------------------------------------------
+
+class TestMapLanguages:
+    def test_python_hint(self):
+        assert prov._map_languages("Python") == ["python"]
+
+    def test_javascript_hint(self):
+        assert prov._map_languages("JavaScript") == ["javascript"]
+        assert prov._map_languages("TypeScript") == ["javascript"]
+        assert prov._map_languages("Node") == ["javascript"]
+
+    def test_unknown_hint_is_empty_not_fallback(self):
+        assert prov._map_languages("Rust") == []
+        assert prov._map_languages("") == []
+        assert prov._map_languages(None) == []
+
+    def test_language_name_mapping(self):
+        assert prov._map_language_name("Python") == "python"
+        assert prov._map_language_name("JavaScript") == "javascript"
+        assert prov._map_language_name("Java") == "java"
+        assert prov._map_language_name("C++") == "cpp"
+        assert prov._map_language_name("C#") == "csharp"
+        assert prov._map_language_name("Swift") == "swift"
+        assert prov._map_language_name("Nothing") is None
+        assert prov._map_language_name(None) is None
+
+
+class TestDetectRepoLanguages:
+    def test_maps_detected_breakdown(self):
+        with patch.object(
+            prov.requests,
+            "get",
+            return_value=_resp(200, json_data={"JavaScript": 500, "Python": 300, "HTML": 100}),
+        ) as mock_get:
+            assert prov._detect_repo_languages("owner/repo", "token") == ["javascript", "python"]
+        assert mock_get.call_args[0][0].endswith("/languages")
+
+    def test_empty_on_api_error(self):
+        with patch.object(prov.requests, "get", return_value=_resp(500, text="boom")):
+            assert prov._detect_repo_languages("owner/repo", "token") == []
+
+    def test_empty_on_exception(self):
+        with patch.object(prov.requests, "get", side_effect=Exception("network")):
+            assert prov._detect_repo_languages("owner/repo", "token") == []
+
+    def test_no_languages_when_detection_empty(self):
+        """No hint + empty detection -> provisioning is skipped, not guessed."""
+        with patch.object(prov, "workflow_exists", return_value=False), patch.object(
+            prov, "_open_provisioning_pr", return_value=None
+        ), patch.object(prov, "_detect_repo_languages", return_value=[]):
+            assert prov.create_codeql_pr("owner/repo", "token") is None
+
+    def test_detection_fallback_when_hint_missing(self):
+        """No hint + detected JS -> JavaScript matrix is provisioned."""
+        with patch.object(prov, "workflow_exists", return_value=False), patch.object(
+            prov, "_open_provisioning_pr", return_value=None
+        ), patch.object(prov, "_detect_repo_languages", return_value=["javascript"]), patch.object(
+            prov, "_resolve_default_branch", return_value="main"
+        ), patch.object(prov, "_get_default_branch_sha", return_value="sha"), patch.object(
+            prov, "_create_branch", return_value=True
+        ), patch.object(prov, "_put_file", return_value=True), patch.object(
+            prov.requests, "post", return_value=_resp(201, json_data={"html_url": "https://github.com/o/r/pull/5"})
+        ):
+            result = prov.create_codeql_pr("owner/repo", "token")
+        assert result == "https://github.com/o/r/pull/5"
 
 
 # ---------------------------------------------------------------
@@ -151,16 +264,16 @@ class TestCreateCodeqlPr:
 class TestProvisionForRepos:
     def test_calls_create_codeql_pr_per_repo(self):
         repos = [
-            {"full_name": "owner/one", "default_branch": "main"},
-            {"full_name": "owner/two", "default_branch": "dev"},
+            {"full_name": "owner/one", "default_branch": "main", "language": "Python"},
+            {"full_name": "owner/two", "default_branch": "dev", "language": "JavaScript"},
         ]
         with patch.object(app_module, "get_cached_token", return_value="token"), patch.object(
             app_module, "create_codeql_pr"
         ) as mock_pr:
             app_module._provision_codeql_for_repos(repos, 5)
         assert mock_pr.call_count == 2
-        mock_pr.assert_any_call("owner/one", "token", default_branch="main")
-        mock_pr.assert_any_call("owner/two", "token", default_branch="dev")
+        mock_pr.assert_any_call("owner/one", "token", default_branch="main", language="Python")
+        mock_pr.assert_any_call("owner/two", "token", default_branch="dev", language="JavaScript")
 
     def test_skips_when_disabled(self):
         with patch.object(app_module.config.app.codeql, "enabled", False), patch.object(
@@ -182,6 +295,68 @@ class TestProvisionForRepos:
         ) as mock_pr:
             app_module._provision_codeql_for_repos([{"full_name": "o/r"}], 5)
         mock_pr.assert_not_called()
+
+
+# ---------------------------------------------------------------
+# _codeql_enabled_for_owner (per-user Settings toggle)
+# ---------------------------------------------------------------
+
+class TestCodeqlEnabledForOwner:
+    def test_defaults_true_when_repo_missing(self):
+        with patch.object(app_module, "get_repo", return_value=None):
+            assert app_module._codeql_enabled_for_owner(1) is True
+
+    def test_defaults_true_when_repo_unattributed(self):
+        with patch.object(app_module, "get_repo", return_value={"user_id": None}):
+            assert app_module._codeql_enabled_for_owner(1) is True
+
+    def test_respects_user_toggle(self):
+        with patch.object(app_module, "get_repo", return_value={"user_id": 7}), patch.object(
+            app_module, "get_user_settings", return_value={"codeql_enabled": False}
+        ):
+            assert app_module._codeql_enabled_for_owner(1) is False
+
+    def test_defaults_true_on_lookup_error(self):
+        with patch.object(app_module, "get_repo", side_effect=Exception("boom")):
+            assert app_module._codeql_enabled_for_owner(1) is True
+
+
+# ---------------------------------------------------------------
+# POST /api/repos/<id>/codeql gating
+# ---------------------------------------------------------------
+
+class TestEnableCodeqlApi:
+    def setup_method(self):
+        flask_app.config["TESTING"] = True
+        self.client = flask_app.test_client()
+
+    def test_blocked_when_codeql_toggle_off(self):
+        with self.client.session_transaction() as sess:
+            sess["user"] = {"github_id": "111", "login": "alice"}
+        with patch.object(app_module, "get_repo", return_value={"full_name": "o/r", "install_id": 1}), patch.object(
+            app_module, "_codeql_enabled_for_owner", return_value=False
+        ), patch.object(app_module, "create_codeql_pr") as mock_pr:
+            resp = self.client.post("/api/repos/1/codeql", headers=_csrf_headers(self.client))
+        assert resp.status_code == 400
+        assert "disabled in Settings" in resp.get_json()["error"]
+        mock_pr.assert_not_called()
+
+    def test_allowed_when_codeql_toggle_on(self):
+        with self.client.session_transaction() as sess:
+            sess["user"] = {"github_id": "111", "login": "alice"}
+        with patch.object(app_module, "get_repo", return_value={"full_name": "o/r", "install_id": 1}), patch.object(
+            app_module, "_codeql_enabled_for_owner", return_value=True
+        ), patch.object(app_module, "get_cached_token", return_value="token"), patch.object(
+            app_module, "create_codeql_pr", return_value="https://github.com/o/r/pull/1"
+        ) as mock_pr, patch.object(app_module, "mark_repo_codeql_provisioned") as mock_mark, patch.object(
+            app_module, "_clear_codeql_attempted"
+        ) as mock_clear:
+            resp = self.client.post("/api/repos/1/codeql", headers=_csrf_headers(self.client))
+        assert resp.status_code == 200
+        assert resp.get_json()["success"] is True
+        mock_pr.assert_called_once()
+        mock_mark.assert_called_once_with("o/r")
+        mock_clear.assert_called_once_with("o/r")
 
 
 # ---------------------------------------------------------------

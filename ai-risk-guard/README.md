@@ -14,8 +14,10 @@ GitHub Code Scanning.
 - **Multi-agent pipeline** — scanner, patch, validator, risk, and orchestrator
   agents cooperate to detect, patch, validate, and score every finding
 - **Patch generation** — deterministic AST fixers plus Gemini LLM innovation
-- **Hardened sandbox** — Docker isolation with memory/CPU/network limits and a
-  local fallback when Docker is unavailable
+- **Hardened sandbox** — Docker isolation with memory/CPU/network limits;
+  scans fail closed when Docker is unavailable (no host execution). Transient
+  Docker restarts are retried with backoff, and scans that fail closed are
+  queued for automatic re-validation once Docker returns (deferred re-validation)
 - **GitHub integration** — PR comments, risk labels, code review decisions,
   SARIF upload to Code Scanning, and automated feedback via reactions/merges
 - **Dashboard** — React SPA with real metrics (risk scores, remediation rate,
@@ -36,7 +38,7 @@ GitHub PR ──► Diff-aware AST Scanner ──► Vulnerability Detection
 
 - Python 3.13+
 - Node.js 20+ (for the frontend)
-- Docker (optional — enables sandbox isolation; falls back to local otherwise)
+- Docker (required for sandbox validation — scans fail closed when unavailable)
 
 ### 1. Configure the app
 
@@ -90,6 +92,77 @@ GitHub's own hosted runners, free on public repositories. Merging the PR activat
 it. Private repositories need a GitHub Code Security entitlement to view Code
 Scanning alerts. Disable via the `codeql` section in `config/app.yaml`
 (`enabled` / `auto_provision`).
+
+### Docker availability
+
+Sandbox validation runs only inside Docker and never on the host. When Docker or
+the sandbox image is unavailable, the app handles it in three layers:
+
+1. **Retry with backoff** — transient daemon restarts are retried before failing
+   closed. Configure with `retry_attempts` / `retry_backoff_seconds` in
+   `config/sandbox.yaml`.
+2. **Static-only validation** — the static stages (syntax, security re-scan,
+   policy) still complete; findings are labelled "static-only" and the check run
+   stays `neutral`, so PRs are never falsely blocked.
+3. **Deferred re-validation** — scans that failed closed are marked pending, and
+   a background worker re-runs them once Docker returns, updating the existing PR
+   comment and check. Enable/tune via the `validation` section in
+   `config/app.yaml`, or trigger manually with the **Re-validate** button on the
+   Scans page.
+4. **CI-runner validation** — when the App's Docker stays unavailable, the
+   sandbox execution and regression tests for each failed candidate are
+   dispatched to a GitHub-hosted Actions runner (via `repository_dispatch`),
+   and the completed runtime evidence is re-injected into a re-analysis pass so
+   the PR comment/check still show real runtime results.
+
+### CI-runner validation (Phase E)
+
+When local Docker is unavailable, the App cannot run the sandbox — but a
+GitHub-hosted runner can. Setup:
+
+1. **Host the workflow** in a repo that contains this codebase (the workflow
+   repo). Push `.github/workflows/ai-risk-guard-validate.yml` and `ci/validate.py`
+   to that repo. The default (empty `workflow_repo` → `GITHUB_REPOSITORY`) assumes
+   the App's own repo, which also needs the App installed so installation-token
+   dispatch works.
+2. **Add a repository secret** `AI_RISK_GUARD_CI_SECRET` on the workflow repo with
+   the same value as the App's `CI_VALIDATION_SECRET`.
+3. **Configure the App** via the `ci_runner` section in `config/app.yaml` plus env:
+   - `CI_VALIDATION_SECRET` — shared secret (must match the repo secret).
+   - `CI_VALIDATION_BASE_URL` (or `ci_runner.base_url`) — public base URL of the
+     App so the runner can fetch jobs and post results.
+   - `CI_VALIDATION_TOKEN` (optional) — token with `repo` scope on the workflow
+     repo; when unset, the App falls back to the PR repo's installation token.
+
+Lifecycle: a candidate that failed closed is captured idempotently in the
+`pending_validations` table → the scan dispatches a single `repository_dispatch`
+(`ai-risk-guard-validate`) covering all captured jobs → the runner checks out the
+workflow repo, runs the real `Sandbox` (`ci/validate.py run`) exactly as the App
+would, and POSTs results back → the App stores them, triggers a re-analysis
+(no local Docker needed), and the PR comment/check are updated with the runtime
+evidence (marked "validated by CI runner"). While CI jobs are in flight, the
+deferred re-validation worker waits for their results instead of re-running.
+
+### LLM-readable regression explanation
+
+Every finding card used to repeat the same technical regression-test block (test
+counts, pinned test names, mocked env vars, rebind info). When Gemini is
+available, the App now replaces that block in each card with one readable,
+plain-language paragraph generated per distinct test payload (deduplicated, one
+LLM call per file). The full technical detail stays available collapsed once per
+file under **🧪 Regression test details** in the Patch & Validation section. When
+Gemini is unavailable or rate-limited, the report fails open to the exact
+deterministic block. Configure via the `regression_explain` section in
+`config/app.yaml`.
+
+Operational notes:
+- The sandbox image is pre-built in the background at startup when Docker is up
+  but the image is missing, so first scans don't pay the pull/build cost.
+- Keep Docker healthy (e.g. `restart: unless-stopped` for the Docker service or
+  containerized app) to minimize fail-closed scans.
+- Monitor `ai_risk_guard_sandbox_fail_closed_total` and
+  `ai_risk_guard_sandbox_available` in the Prometheus `/metrics` endpoint to
+  alert on Docker outages.
 
 ## Environment variables
 

@@ -65,6 +65,7 @@ export default function Settings() {
       const res = await updateSettings({
         scan_mode: settings?.scan_mode,
         sandbox_network: settings?.sandbox_network,
+        codeql_enabled: Boolean(settings?.codeql_enabled),
       })
       setSettings(res.settings)
       setSaveMsg({ type: 'success', text: 'Scan configuration saved.' })
@@ -191,14 +192,13 @@ export default function Settings() {
           <div className="text-xs mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg"
             style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
             <span className={`w-2 h-2 rounded-full ${settingsOptions.docker_available ? 'bg-blue-400' : 'bg-red-400'}`} />
-            Docker {settingsOptions.docker_available ? 'available' : 'unavailable — local fallback active'}
+            Docker {settingsOptions.docker_available ? 'available' : 'unavailable — scans will fail'}
           </div>
 
           <label className="block stat-label mb-2">Scan mode</label>
           <div className="space-y-3 mb-6">
             {[
-              { id: 'sandbox_with_local_fallback', label: 'Sandbox with local fallback', desc: 'Run in Docker, fall back to local automatically when Docker is unavailable. (default)' },
-              { id: 'sandbox_and_local_comparison', label: 'Sandbox + local comparison', desc: 'Always run tests locally alongside Docker and show the comparison on the PR.' },
+              { id: 'docker_only', label: 'Docker only', desc: 'Run scans in the hardened Docker sandbox. Scans fail if Docker is unavailable. (default)' },
             ].map((mode) => (
               <label key={mode.id} className="flex items-start gap-3 cursor-pointer">
                 <input
@@ -252,6 +252,29 @@ export default function Settings() {
           >
             {saving ? 'Saving…' : 'Save configuration'}
           </button>
+        </Card>
+
+        {/* CodeQL */}
+        <Card title="CodeQL">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="codeql_enabled"
+              className="mt-0.5 accent-blue-600 w-4 h-4"
+              checked={settings?.codeql_enabled !== false}
+              onChange={(e) => setSettings((s) => ({ ...s, codeql_enabled: e.target.checked }))}
+            />
+            <span>
+              <span className="text-sm font-medium block">CodeQL enable feature</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                When disabled, new repositories are never auto-provisioned with CodeQL and no
+                setup pull requests are opened on your behalf.
+              </span>
+            </span>
+          </label>
+          <p className="mt-4 text-xs italic" style={{ color: 'var(--text-muted)' }}>
+            Do this by your own accord — we only recommend using it for an easy CI/CD workflow.
+          </p>
         </Card>
       </div>
 

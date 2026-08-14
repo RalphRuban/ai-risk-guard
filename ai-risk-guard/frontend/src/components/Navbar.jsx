@@ -15,7 +15,6 @@ const appLinks = [
   { to: '/scans', label: 'Pull Requests' },
   { to: '/findings', label: 'Findings' },
   { to: '/policy', label: 'Policy' },
-  { to: '/metrics', label: 'Metrics' },
   { to: '/settings', label: 'Settings' },
   { to: '/docs', label: 'Docs' },
   { to: '/status', label: 'Status' },

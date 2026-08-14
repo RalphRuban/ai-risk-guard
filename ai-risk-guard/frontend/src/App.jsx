@@ -12,7 +12,6 @@ import FindingsExplorer from './pages/FindingsExplorer'
 import Scans from './pages/Scans'
 import Docs from './pages/Docs'
 import Status from './pages/Status'
-import Metrics from './pages/Metrics'
 import Settings from './pages/Settings'
 
 export default function App() {
@@ -31,7 +30,6 @@ export default function App() {
         <Route path="/scan/:scanId" element={<ScanDetail />} />
         <Route path="/findings" element={<FindingsExplorer />} />
         <Route path="/scans" element={<Scans />} />
-        <Route path="/metrics" element={<Metrics />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

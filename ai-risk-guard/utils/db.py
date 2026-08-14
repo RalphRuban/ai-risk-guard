@@ -4,11 +4,36 @@ Persistent SQLite-backed dashboard storage.
 Replaces the in-memory analysis_data dict in main.py.
 """
 
+import json
 import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(os.getenv("DB_PATH", "data/dashboard.db"))
+# Resolve the DB path against the repo root so the app works no matter which
+# working directory it is launched from (systemd, cron, tests, WSGI). Absolute
+# paths from DB_PATH are used as-is.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_DB_PATH = _REPO_ROOT / "data" / "dashboard.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(_DEFAULT_DB_PATH)))
+if not DB_PATH.is_absolute():
+    DB_PATH = (_REPO_ROOT / DB_PATH).resolve()
+
+# ---------------------------------------------------------------------------
+# Scan configuration constants (Phase 4.1). Kept here so both the API and the
+# webhook path can import them from a single place.
+# ---------------------------------------------------------------------------
+DEFAULT_SCAN_MODE = "docker_only"
+DEFAULT_SANDBOX_NETWORK = "none"
+SCAN_MODES = frozenset({
+    DEFAULT_SCAN_MODE,
+    # Legacy value from before the fail-closed change; still accepted for
+    # existing saved settings but behaves identically to docker_only.
+    "sandbox_with_local_fallback",
+})
+SANDBOX_NETWORKS = frozenset({
+    DEFAULT_SANDBOX_NETWORK,
+    "bridge",
+})
 
 
 def _connect() -> sqlite3.Connection:
@@ -23,255 +48,10 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
-def init_db():
-    """Create tables if they don't exist. Call once at startup."""
-    with _connect() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS dashboard (
-                key   TEXT PRIMARY KEY,
-                value INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-        
-        # Feedback table with multi-user support
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS patch_feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                vuln_type TEXT NOT NULL,
-                outcome TEXT NOT NULL,
-                user_id TEXT DEFAULT '',
-                display_name TEXT DEFAULT '',
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        # Migration: add user_id column to existing tables
-        cursor = conn.execute("PRAGMA table_info(patch_feedback)")
-        existing_cols = [row["name"] for row in cursor.fetchall()]
-        if "user_id" not in existing_cols:
-            conn.execute("ALTER TABLE patch_feedback ADD COLUMN user_id TEXT DEFAULT ''")
-        if "display_name" not in existing_cols:
-            conn.execute("ALTER TABLE patch_feedback ADD COLUMN display_name TEXT DEFAULT ''")
-        # Migration: add repo/PR/scan context so feedback is attributable to a
-        # specific repository and pull request (Phase 4.2).
-        if "repo_id" not in existing_cols:
-            conn.execute("ALTER TABLE patch_feedback ADD COLUMN repo_id INTEGER")
-        if "pr_number" not in existing_cols:
-            conn.execute("ALTER TABLE patch_feedback ADD COLUMN pr_number INTEGER")
-        if "scan_id" not in existing_cols:
-            conn.execute("ALTER TABLE patch_feedback ADD COLUMN scan_id INTEGER")
-
-        # Unique index: one vote per user per vuln type (skip when user_id is empty)
-        conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_user_vuln
-            ON patch_feedback (vuln_type, user_id)
-            WHERE user_id != ''
-        """)
-
-        # New table to track findings per PR for automated merge-feedback (Phase 3)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS pr_findings (
-                pr_number INTEGER,
-                vuln_type TEXT,
-                PRIMARY KEY (pr_number, vuln_type)
-            )
-        """)
-
-        # Bot PR comments tracked so the reaction poller knows which comments to
-        # query for 🚀/👎 feedback (replaces the non-existent `reaction` webhook).
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS bot_comments (
-                comment_id INTEGER PRIMARY KEY,
-                repo TEXT NOT NULL,
-                pr_number INTEGER NOT NULL,
-                posted_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-
-        # Already-harvested reactions (dedup for the poller). A reaction that is
-        # removed upstream is intentionally not rolled back once processed.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS processed_reactions (
-                reaction_id INTEGER PRIMARY KEY,
-                comment_id INTEGER NOT NULL,
-                user_id TEXT NOT NULL,
-                content TEXT NOT NULL,
-                processed_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-
-        # Scan cache: per-file, per-commit-hash scan results
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS scan_cache (
-                cache_key TEXT PRIMARY KEY,
-                results TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ttl_seconds INTEGER DEFAULT 3600
-            )
-        """)
-
-        # AST/CST parse cache (tree stores pickled AST bytes -> BLOB affinity)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ast_cache (
-                cache_key TEXT PRIMARY KEY,
-                file_path TEXT NOT NULL DEFAULT '',
-                tree BLOB NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ttl_seconds INTEGER DEFAULT 86400
-            )
-        """)
-
-        # Migration: ast_cache.tree must have BLOB affinity. Tables created with
-        # TEXT affinity can corrupt pickled AST bytes, so drop and recreate the
-        # disposable parse cache when the affinity is wrong.
-        ast_cols = {r["name"]: (r["type"] or "").upper()
-                    for r in conn.execute("PRAGMA table_info(ast_cache)").fetchall()}
-        if ast_cols.get("tree") != "BLOB":
-            conn.execute("DROP TABLE IF EXISTS ast_cache")
-            conn.execute("""
-                CREATE TABLE ast_cache (
-                    cache_key TEXT PRIMARY KEY,
-                    file_path TEXT NOT NULL DEFAULT '',
-                    tree BLOB NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    ttl_seconds INTEGER DEFAULT 86400
-                )
-            """)
-
-        # Gemini response cache (keyed by prompt hash)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS gemini_cache (
-                cache_key TEXT PRIMARY KEY,
-                response TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ttl_seconds INTEGER DEFAULT 86400
-            )
-        """)
-
-        # Users table for GitHub OAuth login
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                github_id INTEGER PRIMARY KEY,
-                login TEXT NOT NULL,
-                name TEXT DEFAULT '',
-                avatar_url TEXT DEFAULT ''
-            )
-        """)
-
-        # Mapping of GitHub App installations to the users who can access them.
-        # Synced from /user/installations at login. Drives per-user dashboards
-        # and scan attribution (works for both user-level and org installs).
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_installations (
-                github_id INTEGER NOT NULL REFERENCES users(github_id) ON DELETE CASCADE,
-                install_id INTEGER NOT NULL,
-                account_type TEXT DEFAULT 'User',
-                account_login TEXT DEFAULT '',
-                synced_at TEXT DEFAULT (datetime('now')),
-                PRIMARY KEY (github_id, install_id)
-            )
-        """)
-
-        # Per-user scan configuration (Phase 4.1). NULL value columns mean
-        # "use the system default" for that user.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_settings (
-                github_id INTEGER PRIMARY KEY REFERENCES users(github_id) ON DELETE CASCADE,
-                scan_mode TEXT,
-                sandbox_network TEXT,
-                updated_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-
-        # Repos discovered from webhooks
-        conn.execute("""
-CREATE TABLE IF NOT EXISTS repos (
-    id INTEGER PRIMARY KEY,
-    full_name TEXT NOT NULL,
-    owner TEXT DEFAULT '',
-    name TEXT DEFAULT '',
-    description TEXT DEFAULT '',
-    language TEXT DEFAULT '',
-    private INTEGER DEFAULT 0,
-    default_branch TEXT DEFAULT 'main',
-    install_id INTEGER DEFAULT 0,
-    user_id INTEGER,
-    first_seen_at TEXT,
-    last_scanned_at TEXT,
-    codeql_provisioned INTEGER DEFAULT 0
-)
-        """)
-
-        # Migration: add codeql_provisioned to repos tables created before the
-        # CodeQL provisioning feature shipped (existing on-disk DBs).
-        repo_cols = [r["name"] for r in conn.execute("PRAGMA table_info(repos)").fetchall()]
-        if "codeql_provisioned" not in repo_cols:
-            conn.execute("ALTER TABLE repos ADD COLUMN codeql_provisioned INTEGER DEFAULT 0")
-
-        # Per-PR scan records
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS scans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                repo_id INTEGER NOT NULL,
-                pr_number INTEGER NOT NULL,
-                pr_title TEXT DEFAULT '',
-                branch TEXT DEFAULT '',
-                commit_sha TEXT DEFAULT '',
-                status TEXT DEFAULT 'completed',
-                findings_count INTEGER DEFAULT 0,
-                max_risk REAL DEFAULT 0.0,
-                duration_ms INTEGER DEFAULT 0,
-                user_id INTEGER,
-                scanned_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-
-        # Individual vulnerability findings from scans
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS findings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scan_id INTEGER NOT NULL,
-                vuln_type TEXT NOT NULL,
-                severity TEXT DEFAULT 'MEDIUM',
-                risk_score REAL DEFAULT 0.0,
-                file_path TEXT DEFAULT '',
-                line_number INTEGER DEFAULT 0,
-                is_new INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'open',
-                created_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-
-        # Seed rows so UPDATE always finds a row
-        for key in ("total_prs", "total_vulnerabilities",
-
 def _cleanup_orphans(conn: sqlite3.Connection):
     """Remove rows referencing non-existent parents before enabling FK constraints."""
     conn.execute("DELETE FROM findings WHERE scan_id NOT IN (SELECT id FROM scans)")
     conn.execute("DELETE FROM scans WHERE repo_id NOT IN (SELECT id FROM repos)")
-
-
-def _migrate_fk_constraints():
-    """Add FOREIGN KEY ... ON DELETE CASCADE to scans/findings (SQLite table rebuild).
-
-    Idempotent: skips when the constraints already exist. Runs on its own
-    autocommit connection because PRAGMA foreign_keys is a no-op inside a
-    transaction.
-    """
-    conn = sqlite3.connect(str(DB_PATH), timeout=10.0, isolation_level=None)
-    try:
-        if conn.execute("PRAGMA foreign_key_list(scans)").fetchall():
-            return
-
-        conn.execute("PRAGMA foreign_keys=OFF")
-        conn.execute("BEGIN")
-
-        conn.execute("""
-            CREATE TABLE scans_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-                pr_number INTEGER NOT NULL,
-                pr_title TEXT DEFAULT '',
 
 
 def _migrate_fk_constraints():
@@ -348,6 +128,311 @@ def _migrate_fk_constraints():
         conn.close()
 
 
+def _migrate_validation_status():
+    """Add the ``validation_status`` column to scans (deferred re-validation).
+
+    Idempotent: skips when the column already exists. Uses a plain ALTER TABLE
+    because the new column is a simple TEXT default with no constraints.
+    """
+    with _connect() as conn:
+        cols = [row["name"] for row in conn.execute("PRAGMA table_info(scans)").fetchall()]
+        if "validation_status" not in cols:
+            conn.execute(
+                "ALTER TABLE scans ADD COLUMN validation_status TEXT DEFAULT 'ok'"
+            )
+            conn.commit()
+
+
+def init_db():
+    """Create tables if they do not exist. Call once at startup."""
+    with _connect() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dashboard (
+                key   TEXT PRIMARY KEY,
+                value INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+        # Feedback table with multi-user support
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS patch_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vuln_type TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                user_id TEXT DEFAULT '',
+                display_name TEXT DEFAULT '',
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Migration: add user_id column to existing tables
+        cursor = conn.execute("PRAGMA table_info(patch_feedback)")
+        existing_cols = [row["name"] for row in cursor.fetchall()]
+        if "user_id" not in existing_cols:
+            conn.execute("ALTER TABLE patch_feedback ADD COLUMN user_id TEXT DEFAULT ''")
+        if "display_name" not in existing_cols:
+            conn.execute("ALTER TABLE patch_feedback ADD COLUMN display_name TEXT DEFAULT ''")
+        # Migration: add repo/PR/scan context so feedback is attributable to a
+        # specific repository and pull request (Phase 4.2).
+        if "repo_id" not in existing_cols:
+            conn.execute("ALTER TABLE patch_feedback ADD COLUMN repo_id INTEGER")
+        if "pr_number" not in existing_cols:
+            conn.execute("ALTER TABLE patch_feedback ADD COLUMN pr_number INTEGER")
+        if "scan_id" not in existing_cols:
+            conn.execute("ALTER TABLE patch_feedback ADD COLUMN scan_id INTEGER")
+
+        # Unique index: one vote per user per vuln type (skip when user_id is empty)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_user_vuln
+            ON patch_feedback (vuln_type, user_id)
+            WHERE user_id != ''
+        """)
+
+        # New table to track findings per PR for automated merge-feedback (Phase 3)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pr_findings (
+                pr_number INTEGER,
+                vuln_type TEXT,
+                PRIMARY KEY (pr_number, vuln_type)
+            )
+        """)
+
+        # Bot PR comments tracked so the reaction poller knows which comments to
+        # query for rocket/plus-one feedback (replaces the non-existent `reaction` webhook).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_comments (
+                comment_id INTEGER PRIMARY KEY,
+                repo TEXT NOT NULL,
+                pr_number INTEGER NOT NULL,
+                posted_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        # Already-harvested reactions (dedup for the poller). A reaction that is
+        # removed upstream is intentionally not rolled back once processed.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS processed_reactions (
+                reaction_id INTEGER PRIMARY KEY,
+                comment_id INTEGER NOT NULL,
+                user_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                processed_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        # Scan cache: per-file, per-commit-hash scan results
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scan_cache (
+                cache_key TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL DEFAULT '',
+                results TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ttl_seconds INTEGER DEFAULT 3600
+            )
+        """)
+        # Migration: older scan_cache tables lacked the file_path column that
+        # ScanCache writes; add it in place so writes never fail silently.
+        try:
+            scan_cols = {r["name"] for r in conn.execute("PRAGMA table_info(scan_cache)")}
+            if "file_path" not in scan_cols:
+                conn.execute("ALTER TABLE scan_cache ADD COLUMN file_path TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
+        # AST/CST parse cache (tree stores pickled AST bytes -> BLOB affinity)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ast_cache (
+                cache_key TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL DEFAULT '',
+                tree BLOB NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ttl_seconds INTEGER DEFAULT 86400
+            )
+        """)
+
+        # Migration: ast_cache.tree must have BLOB affinity. Tables created with
+        # TEXT affinity can corrupt pickled AST bytes, so drop and recreate the
+        # disposable parse cache when the affinity is wrong.
+        ast_cols = {r["name"]: (r["type"] or "").upper()
+                    for r in conn.execute("PRAGMA table_info(ast_cache)").fetchall()}
+        if ast_cols.get("tree") != "BLOB":
+            conn.execute("DROP TABLE IF EXISTS ast_cache")
+            conn.execute("""
+                CREATE TABLE ast_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    file_path TEXT NOT NULL DEFAULT '',
+                    tree BLOB NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ttl_seconds INTEGER DEFAULT 86400
+                )
+            """)
+
+        # Gemini response cache (keyed by prompt hash)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS gemini_cache (
+                cache_key TEXT PRIMARY KEY,
+                response TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ttl_seconds INTEGER DEFAULT 86400
+            )
+        """)
+
+        # Users table for GitHub OAuth login
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                github_id INTEGER PRIMARY KEY,
+                login TEXT NOT NULL,
+                name TEXT DEFAULT '',
+                avatar_url TEXT DEFAULT ''
+            )
+        """)
+
+        # Mapping of GitHub App installations to the users who can access them.
+        # Synced from /user/installations at login. Drives per-user dashboards
+        # and scan attribution (works for both user-level and org installs).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_installations (
+                github_id INTEGER NOT NULL REFERENCES users(github_id) ON DELETE CASCADE,
+                install_id INTEGER NOT NULL,
+                account_type TEXT DEFAULT 'User',
+                account_login TEXT DEFAULT '',
+                synced_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (github_id, install_id)
+            )
+        """)
+
+        # Per-user scan configuration (Phase 4.1). NULL value columns mean
+        # "use the system default" for that user.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_settings (
+                github_id INTEGER PRIMARY KEY REFERENCES users(github_id) ON DELETE CASCADE,
+                scan_mode TEXT,
+                sandbox_network TEXT,
+                codeql_enabled INTEGER DEFAULT 1,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        # Migration: add codeql_enabled to user_settings tables created before
+        # the CodeQL enable toggle shipped (existing on-disk DBs).
+        us_cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()]
+        if "codeql_enabled" not in us_cols:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN codeql_enabled INTEGER DEFAULT 1")
+
+        # Repos discovered from webhooks
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS repos (
+                id INTEGER PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                owner TEXT DEFAULT '',
+                name TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                language TEXT DEFAULT '',
+                private INTEGER DEFAULT 0,
+                default_branch TEXT DEFAULT 'main',
+                install_id INTEGER DEFAULT 0,
+                user_id INTEGER,
+                first_seen_at TEXT,
+                last_scanned_at TEXT,
+                codeql_provisioned INTEGER DEFAULT 0
+            )
+        """)
+
+        # Migration: add codeql_provisioned to repos tables created before the
+        # CodeQL provisioning feature shipped (existing on-disk DBs).
+        repo_cols = [r["name"] for r in conn.execute("PRAGMA table_info(repos)").fetchall()]
+        if "codeql_provisioned" not in repo_cols:
+            conn.execute("ALTER TABLE repos ADD COLUMN codeql_provisioned INTEGER DEFAULT 0")
+
+        # Per-PR scan records
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_id INTEGER NOT NULL,
+                pr_number INTEGER NOT NULL,
+                pr_title TEXT DEFAULT '',
+                branch TEXT DEFAULT '',
+                commit_sha TEXT DEFAULT '',
+                status TEXT DEFAULT 'completed',
+                validation_status TEXT DEFAULT 'ok',
+                findings_count INTEGER DEFAULT 0,
+                max_risk REAL DEFAULT 0.0,
+                duration_ms INTEGER DEFAULT 0,
+                user_id INTEGER,
+                scanned_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        # Individual vulnerability findings from scans
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS findings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scan_id INTEGER NOT NULL,
+                vuln_type TEXT NOT NULL,
+                severity TEXT DEFAULT 'MEDIUM',
+                risk_score REAL DEFAULT 0.0,
+                file_path TEXT DEFAULT '',
+                line_number INTEGER DEFAULT 0,
+                is_new INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'open',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        # CI-runner fallback validation jobs (Phase E). When the App's Docker
+        # daemon is unavailable the sandbox + regression-test evidence for a
+        # candidate is captured here, dispatched to a GitHub Actions runner via
+        # repository_dispatch, and the completed results re-injected into a
+        # re-analysis pass so the PR comment/check pick up runtime evidence.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_validations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_full_name TEXT NOT NULL,
+                pr_number INTEGER NOT NULL DEFAULT 0,
+                commit_sha TEXT DEFAULT '',
+                source_filename TEXT DEFAULT '',
+                candidate_id TEXT DEFAULT '',
+                patched_code TEXT NOT NULL,
+                test_filename TEXT DEFAULT '',
+                test_content TEXT DEFAULT '',
+                extra_files TEXT DEFAULT '[]',
+                scan_mode TEXT DEFAULT '',
+                sandbox_network TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                result_json TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE (repo_full_name, commit_sha, source_filename, candidate_id)
+            )
+        """)
+
+        # Seed rows so UPDATE always finds a row
+        for key in ("total_prs", "total_vulnerabilities",
+                    "risk_LOW", "risk_MEDIUM", "risk_HIGH",
+                    "cache_hits", "cache_misses"):
+            conn.execute(
+                "INSERT OR IGNORE INTO dashboard (key, value) VALUES (?, 0)",
+                (key,),
+            )
+
+        # Remove rows that reference missing parents before FK constraints are
+        # enabled on the freshly built scans/findings tables.
+        _cleanup_orphans(conn)
+
+        conn.commit()
+
+    # Idempotent schema upgrade: add ON DELETE CASCADE foreign keys.
+    _migrate_fk_constraints()
+    # Idempotent schema upgrade: validation_status column for deferred re-validation.
+    _migrate_validation_status()
+    # Query-planning indexes for the most frequent access patterns.
+    _create_indexes()
+    # Best-effort housekeeping (expired cache rows, VACUUM).
+    with _connect() as conn:
+        _purge_expired_cache_rows(conn)
+    _maybe_vacuum()
+
+
 def _create_indexes():
     """Create indexes for the most frequent query patterns."""
     with _connect() as conn:
@@ -360,6 +445,7 @@ def _create_indexes():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_repos_install ON repos (install_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_user_install_user ON user_installations (github_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_user_install_install ON user_installations (install_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pending_validation_commit ON pending_validations (repo_full_name, commit_sha)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_gemini_cache_created ON gemini_cache (created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ast_cache_created ON ast_cache (created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_cache_created ON scan_cache (created_at)")
@@ -371,15 +457,18 @@ def _create_indexes():
 
 
 def _purge_expired_cache_rows(conn: sqlite3.Connection):
-    """Delete cache rows past their TTL so the DB doesn't grow unbounded."""
-    for table in ("scan_cache", "ast_cache", "gemini_cache", "test_file_cache"):
+    """Delete expired cache rows."""
+    tables = ("scan_cache", "ast_cache", "gemini_cache", "test_file_cache")
+    for table in tables:
         try:
-            conn.execute(
+            sql = (
                 f"DELETE FROM {table} WHERE "
-                "(strftime('%s', 'now') - strftime('%s', created_at)) >= ttl_seconds"
+                f"(strftime('%s', 'now') - strftime('%s', created_at)) >= ttl_seconds"
             )
+            conn.execute(sql)
         except sqlite3.OperationalError:
             pass
+    conn.commit()
 
 
 def _maybe_vacuum(threshold_mb: int = 5):
@@ -435,7 +524,7 @@ def get_feedback_stats(vuln_type: str) -> dict:
             FROM patch_feedback 
             WHERE vuln_type = ?
         """, (vuln_type,)).fetchone()
-        
+
     return {
         "total": row["total"] or 0,
         "accepted": row["accepted"] or 0
@@ -919,6 +1008,16 @@ def is_repo_codeql_provisioned(full_name: str) -> bool:
         return row is not None and row[0] == 1
 
 
+def mark_repo_codeql_provisioned(full_name: str):
+    """Mark a repo as CodeQL-provisioned after a setup PR was opened."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE repos SET codeql_provisioned = 1 WHERE full_name = ?",
+            (full_name,),
+        )
+        conn.commit()
+
+
 def clear_codeql_provisioned(full_name: str):
     """Clear the provisioned flag (e.g. for re-provisioning after config change)."""
     with _connect() as conn:
@@ -937,7 +1036,7 @@ def delete_repos_by_install(install_id: int):
 
 
 def delete_repo_by_full_name(full_name: str):
-    """Remove a single repo (e.g. when it's removed from an installation)."""
+    """Remove a single repo (e.g. when it is removed from an installation)."""
     with _connect() as conn:
         conn.execute("DELETE FROM repos WHERE full_name = ?", (full_name,))
         conn.commit()
@@ -1033,6 +1132,175 @@ def record_scan(repo_id: int, pr_number: int, pr_title: str, branch: str,
     return scan_id
 
 
+def mark_scan_validation_pending(scan_id: int):
+    """Mark a scan as awaiting re-validation (Docker was unavailable during it)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE scans SET validation_status = 'pending' WHERE id = ?",
+            (scan_id,),
+        )
+        conn.commit()
+
+
+def mark_scan_validated(scan_id: int):
+    """Mark a scan as fully validated (Docker re-validation completed)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE scans SET validation_status = 'ok' WHERE id = ?",
+            (scan_id,),
+        )
+        conn.commit()
+
+
+def get_pending_validation_scans(limit: int = 10) -> list:
+    """Return scans awaiting re-validation, oldest first, joined with repo info."""
+    with _connect() as conn:
+        rows = conn.execute("""
+            SELECT s.id, s.repo_id, s.pr_number, s.pr_title, s.branch, s.commit_sha,
+                   s.status, s.validation_status, s.scanned_at,
+                   r.full_name AS repo_full_name, r.install_id
+            FROM scans s
+            JOIN repos r ON s.repo_id = r.id
+            WHERE s.validation_status = 'pending'
+            ORDER BY s.scanned_at ASC
+            LIMIT ?
+        """, (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_pending_scans_for_commit(repo_full_name: str, commit_sha: str, limit: int = 5) -> list:
+    """Return pending-validation scans for a specific commit (CI results arrived)."""
+    with _connect() as conn:
+        rows = conn.execute("""
+            SELECT s.id, s.repo_id, s.pr_number, s.pr_title, s.branch, s.commit_sha,
+                   s.status, s.validation_status, s.scanned_at,
+                   r.full_name AS repo_full_name, r.install_id
+            FROM scans s
+            JOIN repos r ON s.repo_id = r.id
+            WHERE s.validation_status = 'pending' AND s.commit_sha = ? AND r.full_name = ?
+            ORDER BY s.scanned_at ASC
+            LIMIT ?
+        """, (commit_sha, repo_full_name, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def record_pending_validation(
+    repo_full_name: str,
+    pr_number: int,
+    commit_sha: str,
+    source_filename: str,
+    candidate_id: str,
+    patched_code: str,
+    test_filename: str = "",
+    test_content: str = "",
+    extra_files: list | None = None,
+    scan_mode: str = "",
+    sandbox_network: str = "",
+) -> int:
+    """Persist a candidate awaiting CI-runner validation (idempotent).
+
+    The UNIQUE key on (repo_full_name, commit_sha, source_filename,
+    candidate_id) means repeated failed-closed captures of the same candidate
+    never create duplicates. Returns the row id.
+    """
+    with _connect() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO pending_validations (
+                repo_full_name, pr_number, commit_sha, source_filename, candidate_id,
+                patched_code, test_filename, test_content, extra_files, scan_mode, sandbox_network
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            repo_full_name, pr_number, commit_sha, source_filename, candidate_id,
+            patched_code, test_filename, test_content,
+            json.dumps(extra_files or [], ensure_ascii=False),
+            scan_mode, sandbox_network,
+        ))
+        conn.commit()
+        row = conn.execute("""
+            SELECT id FROM pending_validations
+            WHERE repo_full_name = ? AND commit_sha = ? AND source_filename = ? AND candidate_id = ?
+        """, (repo_full_name, commit_sha, source_filename, candidate_id)).fetchone()
+    return int(row["id"]) if row else 0
+
+
+def get_pending_validation(job_id: int) -> dict | None:
+    """Return a single pending-validation job row."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM pending_validations WHERE id = ?", (job_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_pending_validations_for_commit(
+    repo_full_name: str, commit_sha: str, statuses: list[str] | None = None
+) -> list:
+    """Return pending-validation jobs for a commit, optionally filtered by status."""
+    with _connect() as conn:
+        sql = "SELECT * FROM pending_validations WHERE repo_full_name = ? AND commit_sha = ?"
+        params: list = [repo_full_name, commit_sha]
+        if statuses:
+            placeholders = ",".join("?" * len(statuses))
+            sql += f" AND status IN ({placeholders})"
+            params.extend(statuses)
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_pending_validation_status(job_id: int, status: str):
+    """Update a pending-validation job's status (pending/dispatched/running/...)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE pending_validations SET status = ?, updated_at = datetime('now') WHERE id = ?",
+            (status, job_id),
+        )
+        conn.commit()
+
+
+def complete_pending_validation(job_id: int, result_json: str, status: str = "completed"):
+    """Store a CI-runner validation result and mark the job completed."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE pending_validations SET status = ?, result_json = ?, updated_at = datetime('now') WHERE id = ?",
+            (status, result_json, job_id),
+        )
+        conn.commit()
+
+
+def count_ci_results_available(repo_full_name: str, commit_sha: str) -> int:
+    """Count completed CI validations for a commit (runtime evidence exists)."""
+    with _connect() as conn:
+        row = conn.execute("""
+            SELECT COUNT(*) AS n FROM pending_validations
+            WHERE repo_full_name = ? AND commit_sha = ? AND status = 'completed'
+        """, (repo_full_name, commit_sha)).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def has_inflight_ci_validation(repo_full_name: str, commit_sha: str) -> bool:
+    """Return True when CI validation jobs are queued or in flight for a commit."""
+    with _connect() as conn:
+        row = conn.execute("""
+            SELECT 1 FROM pending_validations
+            WHERE repo_full_name = ? AND commit_sha = ? AND status IN ('pending', 'dispatched', 'running')
+            LIMIT 1
+        """, (repo_full_name, commit_sha)).fetchone()
+    return row is not None
+
+
+def get_ci_result(
+    repo_full_name: str, commit_sha: str, source_filename: str, candidate_id: str
+) -> dict | None:
+    """Return a completed CI validation job row for a candidate, or None."""
+    with _connect() as conn:
+        row = conn.execute("""
+            SELECT * FROM pending_validations
+            WHERE repo_full_name = ? AND commit_sha = ? AND source_filename = ? AND candidate_id = ?
+              AND status = 'completed'
+        """, (repo_full_name, commit_sha, source_filename, candidate_id)).fetchone()
+    return dict(row) if row else None
+
+
 def get_scan(scan_id: int, github_id: int | None = None) -> dict | None:
     """Return a single scan record by ID, joined with repo info.
 
@@ -1042,14 +1310,16 @@ def get_scan(scan_id: int, github_id: int | None = None) -> dict | None:
     with _connect() as conn:
         if github_id is None:
             row = conn.execute("""
-                SELECT s.*, r.full_name AS repo_full_name, r.owner AS repo_owner, r.name AS repo_name
+                SELECT s.*, r.full_name AS repo_full_name, r.owner AS repo_owner,
+                       r.name AS repo_name, r.install_id AS install_id
                 FROM scans s
                 JOIN repos r ON s.repo_id = r.id
                 WHERE s.id = ?
             """, (scan_id,)).fetchone()
         else:
             row = conn.execute("""
-                SELECT s.*, r.full_name AS repo_full_name, r.owner AS repo_owner, r.name AS repo_name
+                SELECT s.*, r.full_name AS repo_full_name, r.owner AS repo_owner,
+                       r.name AS repo_name, r.install_id AS install_id
                 FROM scans s
                 JOIN repos r ON s.repo_id = r.id
                 JOIN user_installations ui
@@ -1099,6 +1369,7 @@ def get_repo_scans(repo_id: int, github_id: int | None = None) -> list:
         if github_id is None:
             rows = conn.execute("""
                 SELECT id, pr_number, pr_title, branch, commit_sha, status,
+                       validation_status,
                        findings_count, max_risk, duration_ms, scanned_at,
                        ROW_NUMBER() OVER (
                            PARTITION BY repo_id, pr_number
@@ -1112,6 +1383,7 @@ def get_repo_scans(repo_id: int, github_id: int | None = None) -> list:
         else:
             rows = conn.execute("""
                 SELECT s.id, s.pr_number, s.pr_title, s.branch, s.commit_sha, s.status,
+                       s.validation_status,
                        s.findings_count, s.max_risk, s.duration_ms, s.scanned_at,
                        ROW_NUMBER() OVER (
                            PARTITION BY s.repo_id, s.pr_number
@@ -1159,13 +1431,33 @@ def record_finding(scan_id: int, vuln_type: str, severity: str,
 
 
 def update_finding_status(finding_id: int, status: str) -> None:
-    """Update the workflow status of a finding (e.g. 'resolved', 'dismissed')."""
+    """Update the workflow status of a finding (e.g. resolved, dismissed)."""
     with _connect() as conn:
         conn.execute(
             "UPDATE findings SET status = ? WHERE id = ?",
             (status, finding_id),
         )
         conn.commit()
+
+
+def finding_belongs_to_user(finding_id: int, github_id: int) -> bool:
+    """Return True when the finding belongs to one of the user's installations.
+
+    Scopes a finding through findings -> scans -> repos -> user_installations so
+    status mutations (and any future per-finding operations) cannot cross
+    tenant boundaries.
+    """
+    with _connect() as conn:
+        row = conn.execute("""
+            SELECT f.id
+            FROM findings f
+            JOIN scans s ON s.id = f.scan_id
+            JOIN repos r ON s.repo_id = r.id
+            JOIN user_installations ui
+              ON ui.install_id = r.install_id AND ui.github_id = ?
+            WHERE f.id = ?
+        """, (github_id, finding_id)).fetchone()
+    return row is not None
 
 
 def resolve_open_findings_for_pr(pr_number: int) -> int:
@@ -1213,6 +1505,148 @@ def get_repo_findings(repo_id: int, github_id: int | None = None) -> list:
     return [dict(r) for r in rows]
 
 
+def get_all_findings(github_id: int, repo_id: int | None = None,
+                     severity: str | None = None, vuln_type: str | None = None,
+                     status: str | None = None, q: str | None = None,
+                     limit: int = 200) -> list:
+    """Findings across all of the user's repos, filtered and latest-scan deduped.
+
+    The same PR re-scanned multiple times only contributes the latest scan's
+    findings, matching the dashboard and per-repo aggregates.
+    """
+    where = ["ui.github_id = ?"]
+    params: list = [github_id]
+    if repo_id is not None:
+        where.append("r.id = ?")
+        params.append(repo_id)
+    if severity:
+        where.append("UPPER(f.severity) = ?")
+        params.append(severity.upper())
+    if vuln_type:
+        where.append("f.vuln_type = ?")
+        params.append(vuln_type)
+    if status:
+        where.append("f.status = ?")
+        params.append(status)
+    if q:
+        where.append("(f.vuln_type LIKE ? OR f.file_path LIKE ?)")
+        like = f"%{q}%"
+        params.extend([like, like])
+    where_sql = " AND ".join(where)
+    params.append(limit)
+
+    with _connect() as conn:
+        rows = conn.execute(f"""
+            SELECT f.id, f.vuln_type, f.severity, f.risk_score,
+                   f.file_path, f.line_number, f.status, f.created_at,
+                   f.scan_id, s.pr_number, s.pr_title,
+                   r.id AS repo_id, r.full_name AS repo_full_name
+            FROM findings f
+            JOIN scans s ON f.scan_id = s.id
+            JOIN repos r ON s.repo_id = r.id
+            JOIN user_installations ui ON ui.install_id = r.install_id
+            WHERE f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number)
+              AND {where_sql}
+            ORDER BY f.risk_score DESC
+            LIMIT ?
+        """, params)
+    return [dict(r) for r in rows]
+
+
+def get_all_scans(github_id: int, repo_id: int | None = None,
+                  status: str | None = None, limit: int = 200) -> list:
+    """Scans across all of the user's repos, most recent first."""
+    where = ["ui.github_id = ?"]
+    params: list = [github_id]
+    if repo_id is not None:
+        where.append("r.id = ?")
+        params.append(repo_id)
+    if status:
+        where.append("s.status = ?")
+        params.append(status)
+    where_sql = " AND ".join(where)
+    params.append(limit)
+
+    with _connect() as conn:
+        rows = conn.execute(f"""
+            SELECT s.id, s.pr_number, s.pr_title, s.branch, s.commit_sha,
+                   s.status, s.findings_count, s.max_risk, s.duration_ms,
+                   s.scanned_at, r.id AS repo_id, r.full_name AS repo_full_name
+            FROM scans s
+            JOIN repos r ON s.repo_id = r.id
+            JOIN user_installations ui ON ui.install_id = r.install_id
+            WHERE {where_sql}
+            ORDER BY s.scanned_at DESC
+            LIMIT ?
+        """, params)
+    return [dict(r) for r in rows]
+
+
+def get_user_settings(github_id: int | None = None) -> dict:
+    """Return a user's effective scan settings (system defaults when unset)."""
+    if github_id is None:
+        return {
+            "scan_mode": DEFAULT_SCAN_MODE,
+            "sandbox_network": DEFAULT_SANDBOX_NETWORK,
+            "codeql_enabled": True,
+        }
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT scan_mode, sandbox_network, codeql_enabled FROM user_settings WHERE github_id = ?",
+            (github_id,),
+        ).fetchone()
+    if row is None:
+        return {
+            "scan_mode": DEFAULT_SCAN_MODE,
+            "sandbox_network": DEFAULT_SANDBOX_NETWORK,
+            "codeql_enabled": True,
+        }
+    return {
+        "scan_mode": row["scan_mode"] or DEFAULT_SCAN_MODE,
+        "sandbox_network": row["sandbox_network"] or DEFAULT_SANDBOX_NETWORK,
+        "codeql_enabled": bool(row["codeql_enabled"]),
+    }
+
+
+def update_user_settings(github_id: int, scan_mode: str | None = None,
+                         sandbox_network: str | None = None,
+                         codeql_enabled: bool | None = None) -> dict:
+    """Persist per-user scan settings, validating against the allowed options.
+
+    Passing None for a field leaves it untouched. Raises ValueError when a
+    provided value is not in the allowed SCAN_MODES / SANDBOX_NETWORKS.
+    """
+    if scan_mode is not None and scan_mode not in SCAN_MODES:
+        raise ValueError(f"Invalid scan_mode: {scan_mode}")
+    if sandbox_network is not None and sandbox_network not in SANDBOX_NETWORKS:
+        raise ValueError(f"Invalid sandbox_network: {sandbox_network}")
+    if codeql_enabled is not None and not isinstance(codeql_enabled, bool):
+        raise ValueError("Invalid codeql_enabled: must be a boolean")
+
+    current = get_user_settings(github_id)
+    new_scan_mode = scan_mode if scan_mode is not None else current["scan_mode"]
+    new_network = sandbox_network if sandbox_network is not None else current["sandbox_network"]
+    new_codeql = codeql_enabled if codeql_enabled is not None else current["codeql_enabled"]
+
+    with _connect() as conn:
+        conn.execute("""
+            INSERT INTO user_settings (github_id, scan_mode, sandbox_network, codeql_enabled, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(github_id) DO UPDATE SET
+                scan_mode = excluded.scan_mode,
+                sandbox_network = excluded.sandbox_network,
+                codeql_enabled = excluded.codeql_enabled,
+                updated_at = datetime('now')
+        """, (github_id, new_scan_mode, new_network, 1 if new_codeql else 0))
+        conn.commit()
+
+    return {
+        "scan_mode": new_scan_mode,
+        "sandbox_network": new_network,
+        "codeql_enabled": bool(new_codeql),
+    }
+
+
 def get_dashboard_repos(github_id: int | None = None) -> list:
     with _connect() as conn:
         if github_id is None:
@@ -1222,3 +1656,29 @@ def get_dashboard_repos(github_id: int | None = None) -> list:
                     COUNT(DISTINCT s.id) AS total_scans,
                     COALESCE(MAX(s.scanned_at), '') AS last_scan_at,
                     COALESCE(SUM(CASE WHEN f.severity = 'HIGH' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS high_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'MEDIUM' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS med_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'LOW' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS low_risk
+                FROM repos r
+                LEFT JOIN scans s ON s.repo_id = r.id
+                LEFT JOIN findings f ON f.scan_id = s.id
+                GROUP BY r.id
+                ORDER BY COALESCE(MAX(s.scanned_at), r.last_scanned_at) DESC
+            """).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT r.id, r.full_name, r.language, r.owner, r.description,
+                    r.private, r.default_branch,
+                    COUNT(DISTINCT s.id) AS total_scans,
+                    COALESCE(MAX(s.scanned_at), '') AS last_scan_at,
+                    COALESCE(SUM(CASE WHEN f.severity = 'HIGH' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS high_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'MEDIUM' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS med_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'LOW' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS low_risk
+                FROM repos r
+                JOIN user_installations ui
+                  ON ui.install_id = r.install_id AND ui.github_id = ?
+                LEFT JOIN scans s ON s.repo_id = r.id
+                LEFT JOIN findings f ON f.scan_id = s.id
+                GROUP BY r.id
+                ORDER BY COALESCE(MAX(s.scanned_at), r.last_scanned_at) DESC
+            """, (github_id,)).fetchall()
+    return [dict(r) for r in rows]

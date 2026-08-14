@@ -78,3 +78,38 @@ explainer:
 summary:
   # One-line LLM summary at the top of the PR report (omitted on failure).
   enabled: true
+
+regression_explain:
+  # LLM-written plain-language explanation of the regression-test results shown
+  # in each finding card. The technical detail block (test counts, pinned test
+  # names, mocked env vars, rebind info) is kept collapsed once per file in the
+  # Patch & Validation section. Falls back to the deterministic block verbatim
+  # when Gemini is unavailable or rate-limited.
+  enabled: true
+  max_test_names_in_prompt: 20
+
+validation:
+  # Deferred re-validation: scans whose sandbox validation failed closed because
+  # Docker was unavailable are re-run automatically once Docker comes back, and
+  # the existing PR comment/check are updated.
+  enabled: true
+  poll_interval_seconds: 60
+  max_revalidations_per_cycle: 3
+
+ci_runner:
+  # CI-runner fallback validation (Phase E): when Docker is unavailable locally,
+  # candidates that failed closed are captured and validated on a GitHub-hosted
+  # runner via repository_dispatch to workflow_repo, then results are re-injected
+  # into a re-analysis pass.
+  #
+  # Required env vars:
+  #   CI_VALIDATION_SECRET — shared secret authenticating runner <-> app calls
+  #   CI_VALIDATION_BASE_URL — public base URL (or set base_url below)
+  #   CI_VALIDATION_TOKEN — GitHub token allowed to dispatch to workflow_repo
+  #     (falls back to the repo's installation token when unset)
+  enabled: true
+  # Repo that hosts .github/workflows/ai-risk-guard-validate.yml (owner/name).
+  # Empty falls back to GITHUB_REPOSITORY, then skips dispatch.
+  workflow_repo: ""
+  event_type: "ai-risk-guard-validate"
+  base_url: ""

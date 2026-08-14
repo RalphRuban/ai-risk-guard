@@ -2,7 +2,7 @@
 tests/test_fixes_verification.py
 Focused tests verifying the 3 fixes:
 1. SARIF executionSuccessful=true
-2. Sandbox local fallback when Docker unavailable
+2. Sandbox fails closed when Docker is unavailable
 3. Quality score analysis
 """
 
@@ -133,96 +133,96 @@ class TestSARIFExecutionSuccessful:
 
 class TestSandboxLocalFallback:
     """
-    Verify Fix 2: Sandbox should fall back to local Python execution
-    when Docker is unavailable.
+    Verify Fix 1: Sandbox fails closed (never runs on the host) when Docker
+    is unavailable.
     """
 
-    def test_docker_not_available_fallback(self):
-        """Sandbox.run() should use _run_local when Docker is not available."""
+    def test_docker_not_available_fails_closed(self):
+        """Sandbox.run() must fail closed (never run locally) when Docker is unavailable."""
         sandbox = Sandbox()
-        sandbox._docker_available = False  # Force Docker unavailable
-        
-        result = sandbox.run("print('hello')")
-        
-        # Should not fail - should run locally
+        with patch.object(sandbox, "_is_docker_available", return_value=False), \
+             patch("core.validator.sandbox.time.sleep"):
+            result = sandbox.run("print('hello')")
+
+        # Must NOT fall back to local execution.
         assert result is not None
-        assert "success" in result
-
-    def test_run_local_executes_python(self):
-        """_run_local should execute valid Python code."""
-        sandbox = Sandbox()
-        
-        result = sandbox._run_local("print('hello')")
-        
-        assert result["success"] is True
-        assert "hello" in result.get("output", "")
-
-    def test_run_local_detects_unsafe_pattern(self):
-        """_run_local should detect unsafe patterns (os.system)."""
-        sandbox = Sandbox()
-        
-        result = sandbox._run_local("import os\nos.system('echo pwned')")
-        
         assert result["success"] is False
-        assert "unsafe" in result.get("error", "").lower()
+        assert "Docker required" in result.get("error", "")
+        assert result.get("image_unavailable") is True
 
-    def test_run_local_syntax_error(self):
-        """_run_local should handle syntax errors gracefully."""
+    def test_sandbox_run_never_falls_back_when_no_docker(self):
+        """Sandbox.run() must fail closed when Docker is unavailable."""
         sandbox = Sandbox()
-        
-        result = sandbox._run_local("def (broken")
-        
-        # Should not crash - should return error result
-        assert result["success"] is False
-
-    def test_run_local_tests_fallback(self):
-        """_run_local_tests should run pytest locally."""
-        sandbox = Sandbox()
-        
-        # Create a temporary test file
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, dir=tempfile.gettempdir()
-        ) as f:
-            f.write("def test_pass():\n    assert True\n")
-            test_path = f.name
-        
-        try:
-            result = sandbox._run_local_tests(test_path)
-            assert result["success"] is True
-        finally:
-            os.unlink(test_path)
-
-    def test_run_local_tests_nonexistent_file(self):
-        """_run_local_tests should handle missing test file."""
-        sandbox = Sandbox()
-        
-        result = sandbox._run_local_tests("nonexistent_test_file.py")
-        
-        assert result["success"] is False
-        assert "not found" in result.get("error", "").lower()
-
-    def test_sandbox_run_uses_fallback_when_no_docker(self):
-        """Sandbox.run() should call _run_local when Docker is unavailable."""
-        sandbox = Sandbox()
-        sandbox._docker_available = False
-        
-        with patch.object(sandbox, '_run_local') as mock_local:
-            mock_local.return_value = {"success": True, "output": "ok"}
+        with patch.object(sandbox, "_is_docker_available", return_value=False), \
+             patch("core.validator.sandbox.time.sleep"):
             result = sandbox.run("print('test')")
-            
-            mock_local.assert_called_once()
-            assert result["success"] is True
 
-    def test_sandbox_run_tests_uses_fallback_when_no_docker(self):
-        """Sandbox.run_tests() should call _run_local_tests when Docker is unavailable."""
+        assert result["success"] is False
+        assert "Docker required" in result.get("error", "")
+
+    def test_sandbox_run_tests_never_falls_back_when_no_docker(self):
+        """Sandbox.run_tests() must fail closed when Docker is unavailable."""
         sandbox = Sandbox()
-        sandbox._docker_available = False
-        
-        with patch.object(sandbox, '_run_local_tests') as mock_local:
-            mock_local.return_value = {"success": True, "output": "tests passed"}
-            sandbox.run_tests("test_something.py")
-            
-            mock_local.assert_called_once()
+        with patch.object(sandbox, "_is_docker_available", return_value=False), \
+             patch("core.validator.sandbox.time.sleep"):
+            result = sandbox.run_tests("test_something.py")
+
+        assert result["success"] is False
+        assert "Docker required" in result.get("error", "")
+
+    def test_run_retries_when_docker_recovers(self):
+        """A transient Docker outage should retry and recover instead of failing closed."""
+        sandbox = Sandbox()
+        with patch.object(
+            sandbox, "_is_docker_available", side_effect=[False, True, True]
+        ), patch.object(sandbox, "_docker_image_ready", return_value=True), \
+            patch.object(sandbox, "_build_docker_cmd", return_value=[]), \
+            patch.object(sandbox, "_do_docker_run", return_value={"success": True, "output": "ok"}), \
+            patch("core.validator.sandbox.time.sleep") as mock_sleep:
+            result = sandbox.run("print('hello')")
+
+        assert result.get("success") is True
+        assert mock_sleep.called
+
+    def test_run_still_fails_closed_after_exhausting_retries(self):
+        """After retries are exhausted the sandbox must still fail closed."""
+        sandbox = Sandbox()
+        with patch.object(sandbox, "_is_docker_available", return_value=False), \
+             patch("core.validator.sandbox.time.sleep") as mock_sleep:
+            result = sandbox.run("print('hello')")
+
+        assert result["success"] is False
+        assert "Docker required" in result.get("error", "")
+        assert result.get("image_unavailable") is True
+        assert result.get("mode") == "unavailable"
+        # Default retry_attempts=2 -> 3 probes total -> 2 sleeps.
+        assert mock_sleep.call_count == 2
+
+    def test_run_fails_closed_when_image_unprovisioned(self):
+        """Docker available but image missing must fail closed with the image reason."""
+        sandbox = Sandbox()
+        with patch.object(sandbox, "_is_docker_available", return_value=True), \
+             patch.object(sandbox, "_docker_image_ready", return_value=False), \
+             patch("core.validator.sandbox.time.sleep"):
+            result = sandbox.run("print('hello')")
+
+        assert result["success"] is False
+        assert "image not provisioned" in result.get("error", "")
+        assert result.get("image_unavailable") is True
+        assert result.get("mode") == "unavailable"
+
+    def test_fail_closed_records_fail_closed_metric(self):
+        """A fail-closed sandbox run increments the fail-closed counter."""
+        sandbox = Sandbox()
+        with patch.object(sandbox, "_is_docker_available", return_value=False), \
+             patch("core.validator.sandbox.time.sleep"), \
+             patch("app.metrics.sandbox_fail_closed_total") as mock_counter, \
+             patch("app.metrics.sandbox_available"):
+            ready, reason = sandbox._ready_for_execution("run")
+
+        assert ready is False
+        assert reason == "daemon"
+        mock_counter.labels.assert_called_once_with(reason="daemon")
 
     def test_docker_availability_cached(self):
         """Docker availability check should be cached after first call."""
@@ -269,34 +269,8 @@ class TestSandboxLocalFallback:
             import shutil
             shutil.rmtree(workspace)
 
-    def test_run_local_tests_continues_when_pip_install_fails(self):
-        """A failed dependency install should not abort the test run."""
-        sandbox = Sandbox()
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, dir=tempfile.gettempdir()
-        ) as f:
-            f.write("from tests.demo import fetch_url\n\n\ndef test_thing():\n    assert True\n")
-            test_path = f.name
-
-        try:
-            with patch("subprocess.run") as mock_run, \
-                 patch("core.validator.sandbox._win32_capped_run", return_value=None):
-                def side_effect(cmd, *args, **kwargs):
-                    if "pytest" in [str(c) for c in cmd]:
-                        return MagicMock(returncode=0, stdout="1 passed in 0.01s", stderr="")
-                    return MagicMock(returncode=1, stderr="No matching distribution for tests")
-
-                mock_run.side_effect = side_effect
-                result = sandbox._run_local_tests(test_path)
-
-            assert result.get("success") is True
-            assert "1 passed" in result.get("output", "")
-        finally:
-            os.unlink(test_path)
-
-    def test_run_tests_docker_pip_install_is_non_fatal(self):
-        """Docker test installer should ignore pip failure and still run pytest."""
+    def test_run_tests_docker_never_pip_installs_missing_deps(self):
+        """Docker test runs must NOT pip-install missing deps (no forced bridge/write)."""
         sandbox = Sandbox()
 
         with tempfile.NamedTemporaryFile(
@@ -320,77 +294,11 @@ class TestSandboxLocalFallback:
                 result = sandbox.run_tests(test_path)
 
             assert result.get("success") is True
-            installer_code = captured["entry_point"][2]
-            assert "check_call" not in installer_code
-            assert "subprocess.run" in installer_code
-            assert "pytest" in installer_code
-        finally:
-            os.unlink(test_path)
-
-    def test_run_local_tests_rebinds_unresolvable_test_import(self):
-        """A test importing from a repo module should be rebound to the patched module."""
-        sandbox = Sandbox()
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, dir=tempfile.gettempdir()
-        ) as f:
-            f.write(
-                "from tests.demo import fetch_url\n"
-                "\n"
-                "\n"
-                "def test_fetch():\n"
-                "    assert fetch_url() == 'ok'\n"
-            )
-            test_path = f.name
-
-        try:
-            with patch("subprocess.run") as mock_run, \
-                 patch("core.validator.sandbox._win32_capped_run", return_value=None):
-                mock_run.return_value = MagicMock(returncode=0, stdout="1 passed in 0.01s", stderr="")
-                result = sandbox._run_local_tests(
-                    test_path,
-                    source_code="def fetch_url():\n    return 'ok'\n",
-                    source_filename="demo1.py",
-                )
-
-            assert result.get("success") is True
-            assert result.get("rebind", {}).get("rebound") is True
-            assert mock_run.call_count == 1
-            pytest_args = [str(a) for a in mock_run.call_args[0][0]]
-            assert "pytest" in pytest_args
-            assert "pip" not in pytest_args
-        finally:
-            os.unlink(test_path)
-
-    def test_run_local_tests_skips_when_test_import_unresolvable(self):
-        """A partial name match should skip the stage with a clear reason."""
-        sandbox = Sandbox()
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, dir=tempfile.gettempdir()
-        ) as f:
-            f.write(
-                "from tests.demo import fetch_url, API_TOKEN\n"
-                "\n"
-                "\n"
-                "def test_fetch():\n"
-                "    assert fetch_url() == API_TOKEN\n"
-            )
-            test_path = f.name
-
-        try:
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0, stdout="1 passed", stderr="")
-                result = sandbox._run_local_tests(
-                    test_path,
-                    source_code="def fetch_url():\n    return 'ok'\n",
-                    source_filename="demo1.py",
-                )
-
-            assert result.get("success") is False
-            assert result.get("skipped") is True
-            assert "API_TOKEN" in result.get("error", "")
-            mock_run.assert_not_called()
+            entry_point = captured["entry_point"]
+            assert entry_point[0] == "python"
+            assert entry_point[1] == "-m"
+            assert entry_point[2] == "pytest"
+            assert not any("pip" in str(a) for a in entry_point)
         finally:
             os.unlink(test_path)
 
@@ -639,118 +547,6 @@ class TestSandboxExtraFiles:
             entry = captured["entry"]
             assert any("pytest" in str(a) for a in entry)
             assert not any("pip install" in str(a) for a in entry)
-        finally:
-            os.unlink(test_path)
-
-    def test_run_local_tests_stages_extra_files(self):
-        from subprocess import CompletedProcess
-
-        sandbox = Sandbox()
-        test_path = self._write_test(
-            "from tests.helpers import make_client\n\n\ndef test_x():\n    assert make_client()\n"
-        )
-        try:
-            captured = {}
-
-            def fake_run(cmd, *args, **kwargs):
-                target = cmd[3]
-                helper = os.path.join(os.path.dirname(target), "tests", "helpers.py")
-                captured["staged"] = os.path.exists(helper)
-                captured["is_pip"] = any("pip install" in part for part in cmd)
-                return CompletedProcess(cmd, 0, stdout="1 passed", stderr="")
-
-            with patch.object(sandbox, "_is_pytest_available", return_value=True), \
-                 patch("core.validator.sandbox.subprocess.run", side_effect=fake_run), \
-                 patch("core.validator.sandbox._win32_capped_run", return_value=None):
-                result = sandbox._run_local_tests(
-                    test_path,
-                    source_code="def make_client():\n    return 'ok'\n",
-                    source_filename="demo1.py",
-                    extra_files=[
-                        {"path": "tests/helpers.py", "content": "def make_client():\n    return 'ok'\n"},
-                    ],
-                )
-            assert result.get("success") is True
-            assert captured["staged"] is True
-            assert captured["is_pip"] is False
-        finally:
-            os.unlink(test_path)
-
-    def test_run_local_tests_writes_mock_header_to_source(self):
-        """Local test runs must apply the mock header to the source module, matching Docker."""
-        from subprocess import CompletedProcess
-
-        sandbox = Sandbox()
-        test_path = self._write_test(
-            "from demo1 import API_TOKEN\n\n\ndef test_token():\n    assert API_TOKEN == 'mock-api-token-xxxxx'\n"
-        )
-        try:
-            captured = {}
-
-            def fake_run(cmd, *args, **kwargs):
-                target = cmd[3]
-                src = os.path.join(os.path.dirname(target), "demo1.py")
-                with open(src, "r", encoding="utf-8") as f:
-                    captured["src"] = f.read()
-                return CompletedProcess(cmd, 0, stdout="1 passed", stderr="")
-
-            with patch.object(sandbox, "_is_pytest_available", return_value=True), \
-                 patch("core.validator.sandbox.subprocess.run", side_effect=fake_run), \
-                 patch("core.validator.sandbox._win32_capped_run", return_value=None):
-                result = sandbox._run_local_tests(
-                    test_path,
-                    source_code="import os\nAPI_TOKEN = os.getenv('API_TOKEN')\n",
-                    source_filename="demo1.py",
-                )
-            assert result.get("success") is True
-            assert captured["src"].startswith("import builtins")
-            assert "_MockEnv" in captured["src"]
-            assert "API_TOKEN = os.getenv('API_TOKEN')" in captured["src"]
-        finally:
-            os.unlink(test_path)
-
-    def test_run_local_tests_isolates_pytest_cwd_from_repo(self):
-        """pytest must run with cwd inside the sandbox temp dir, never the repo.
-
-        Without this, a non-rebound ``from tests.demo import ...`` resolves to
-        the repository's own original module and the local run silently passes
-        against unpatched code (the false "all green" signal).
-        """
-        from subprocess import CompletedProcess
-
-        sandbox = Sandbox()
-        test_path = self._write_test(
-            "from tests.demo import fetch_url\n\n\ndef test_f():\n    assert fetch_url()\n"
-        )
-        try:
-            captured = {}
-
-            def fake_run(cmd, *args, **kwargs):
-                cwd = kwargs.get("cwd")
-                captured["cwd"] = cwd
-                captured["has_src_in_cwd"] = cwd is not None and os.path.isfile(
-                    os.path.join(cwd, "demo1.py")
-                )
-                captured["target_inside_cwd"] = cwd is not None and os.path.dirname(
-                    cmd[3]
-                ).startswith(os.path.normpath(cwd))
-                return CompletedProcess(cmd, 0, stdout="1 passed", stderr="")
-
-            with patch.object(sandbox, "_is_pytest_available", return_value=True), \
-                 patch("core.validator.sandbox.subprocess.run", side_effect=fake_run), \
-                 patch("core.validator.sandbox._win32_capped_run", return_value=None):
-                result = sandbox._run_local_tests(
-                    test_path,
-                    source_code="def fetch_url():\n    return 'ok'\n",
-                    source_filename="demo1.py",
-                )
-            assert result.get("success") is True
-            assert captured["cwd"] is not None
-            base = os.path.basename(os.path.normpath(captured["cwd"]))
-            assert base.startswith("airisk_tests_"), f"pytest cwd escaped sandbox: {captured['cwd']}"
-            assert os.path.normpath(captured["cwd"]) != os.path.normpath(os.getcwd())
-            assert captured["has_src_in_cwd"] is True
-            assert captured["target_inside_cwd"] is True
         finally:
             os.unlink(test_path)
 

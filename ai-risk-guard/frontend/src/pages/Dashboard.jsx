@@ -277,8 +277,7 @@ export default function Dashboard() {
             <div>
               <p className="stat-label" style={{ color: 'var(--text-muted)' }}>Sandbox</p>
               <p className="text-sm font-semibold capitalize">
-                {health.sandbox?.mode || 'unknown'}
-                {health.sandbox?.mode === 'docker' ? ' · ✓ isolated' : ' · local fallback'}
+                {health.sandbox?.mode === 'docker' ? 'docker · ✓ isolated' : (health.sandbox?.mode || 'unknown') + ' · scans fail closed'}
               </p>
             </div>
           </div>

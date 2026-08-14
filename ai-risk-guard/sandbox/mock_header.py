@@ -10,7 +10,7 @@ MOCKED_ENV_VARS = [
 ]
 
 
-def build_mock_header(source_filename: str = "script.py") -> str:
+def build_mock_header() -> str:
     return (
         "import builtins, sys, shlex, time, types, os\n"
         "class _MockEnv(dict):\n"
@@ -40,7 +40,10 @@ def build_mock_header(source_filename: str = "script.py") -> str:
         "builtins.input = MockInput()\n"
         "def mock_sleep(seconds): pass\n"
         "time.sleep = mock_sleep\n"
-        f"sys.argv = ['{source_filename}']\n"
+        # sys.argv[0] is set by the interpreter to the real script path; keep
+        # a fixed literal here so attacker-controlled filenames are never
+        # interpolated into generated source (string-breakout injection).
+        "sys.argv = ['script.py']\n"
         "_req = types.ModuleType('requests')\n"
         "_mock_json_call = [0]\n"
         "class _MockResp:\n"

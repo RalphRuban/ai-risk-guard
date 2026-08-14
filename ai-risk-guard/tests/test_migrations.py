@@ -66,6 +66,48 @@ def test_init_db_is_idempotent_when_column_present(tmp_path):
     assert cols.count("codeql_provisioned") == 1
 
 
+def _old_user_settings_schema(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE user_settings (
+            github_id INTEGER PRIMARY KEY,
+            scan_mode TEXT,
+            sandbox_network TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+
+
+def test_init_db_adds_codeql_enabled_column(tmp_path):
+    db_file = Path(tmp_path) / "settings.db"
+    conn = sqlite3.connect(str(db_file))
+    _old_user_settings_schema(conn)
+    conn.close()
+
+    with patch.object(udb, "DB_PATH", db_file):
+        udb.init_db()
+        with udb._connect() as conn:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()]
+
+    assert "codeql_enabled" in cols
+
+
+def test_init_db_is_idempotent_for_codeql_enabled(tmp_path):
+    db_file = Path(tmp_path) / "settings2.db"
+    conn = sqlite3.connect(str(db_file))
+    _old_user_settings_schema(conn)
+    conn.execute("ALTER TABLE user_settings ADD COLUMN codeql_enabled INTEGER DEFAULT 1")
+    conn.commit()
+    conn.close()
+
+    with patch.object(udb, "DB_PATH", db_file):
+        udb.init_db()
+        with udb._connect() as conn:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()]
+
+    assert cols.count("codeql_enabled") == 1
+
+
 def test_init_db_rebuilds_ast_cache_with_blob_tree(tmp_path):
     db_file = Path(tmp_path) / "ast.db"
     conn = sqlite3.connect(str(db_file))

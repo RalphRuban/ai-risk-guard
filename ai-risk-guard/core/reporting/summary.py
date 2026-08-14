@@ -185,8 +185,11 @@ def validation_summary(r: dict[str, Any]) -> dict[str, Any]:
         "success": bool(validation.get("success")),
         "score": float(validation.get("score", 0.0)),
         "mode": test_results.get("mode", "unknown"),
-        "docker_unavailable": bool(test_results.get("docker_unavailable")),
-        "local_fallback": test_results.get("local_fallback"),
+        "docker_unavailable": bool(
+            test_results.get("image_unavailable")
+            or test_results.get("mode") == "unavailable"
+        ),
+        "static_only": bool(validation.get("static_only")),
         "test_summary": parse_test_summary(test_results.get("output", "")),
         "expected_failures": test_results.get("expected_failures") or [],
         "regression_failures": test_results.get("regression_failures") or [],

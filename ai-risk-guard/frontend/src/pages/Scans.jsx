@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import PageHeader from '../components/PageHeader'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-import { getAllScans, getRepos, getUser } from '../api/client'
+import { getAllScans, getRepos, getUser, revalidateScan } from '../api/client'
 
 function RiskScore({ score }) {
   const color = score >= 7 ? '#F43F5E' : score >= 4 ? '#3B82F6' : '#A8B0BC'
@@ -31,6 +31,7 @@ export default function Scans() {
   const [error, setError] = useState(null)
   const [repoId, setRepoId] = useState('')
   const [status, setStatus] = useState('')
+  const [revalidating, setRevalidating] = useState({})
 
   const fetchScans = useCallback(async () => {
     setLoading(true)
@@ -47,6 +48,19 @@ export default function Scans() {
       setLoading(false)
     }
   }, [repoId, status])
+
+  const handleRevalidate = useCallback(async (scanId) => {
+    setRevalidating((prev) => ({ ...prev, [scanId]: true }))
+    try {
+      await revalidateScan(scanId)
+      setError(null)
+      await fetchScans()
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to queue re-validation')
+    } finally {
+      setRevalidating((prev) => ({ ...prev, [scanId]: false }))
+    }
+  }, [fetchScans])
 
   useEffect(() => {
     getUser().then((auth) => {
@@ -144,6 +158,7 @@ export default function Scans() {
                   <th className="pb-3 px-2">Max Risk</th>
                   <th className="pb-3 px-2">Duration</th>
                   <th className="pb-3 px-2">Status</th>
+                  <th className="pb-3 px-2">Validation</th>
                   <th className="pb-3 px-2">Scanned</th>
                 </tr>
               </thead>
@@ -170,6 +185,22 @@ export default function Scans() {
                       }`}>
                         {s.status || '—'}
                       </span>
+                    </td>
+                    <td className="py-3 px-2">
+                      {s.validation_status === 'pending' ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="badge badge-warn">re-validation pending</span>
+                          <button
+                            onClick={() => handleRevalidate(s.id)}
+                            disabled={revalidating[s.id]}
+                            className="btn-secondary text-xs px-2 py-1"
+                          >
+                            {revalidating[s.id] ? 'Queuing…' : 'Re-validate'}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="badge badge-ok">validated</span>
+                      )}
                     </td>
                     <td className="py-3 px-2 text-xs" style={{ color: 'var(--text-muted)' }}>
                       {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : '—'}

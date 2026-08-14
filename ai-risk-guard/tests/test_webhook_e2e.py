@@ -15,12 +15,15 @@ import hmac
 import json
 import re
 import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
+import utils.db as udb
 from app import app as app_module
 from app.app import app as flask_app
 from utils.db import get_repo_scans, upsert_repo
@@ -29,7 +32,7 @@ app_module.GITHUB_WEBHOOK_SECRET = "test-secret"
 
 SOURCE = "import os\nos.system('ls')\n"
 TEST_CONTENT = "from demo1 import fetch_url\n\ndef test_f():\n    assert fetch_url()\n"
-SANDBOX_OK = {"success": True, "skipped": False, "mode": "local", "output": "1 passed", "error": ""}
+SANDBOX_OK = {"success": True, "skipped": False, "mode": "docker", "output": "1 passed", "error": ""}
 
 
 def _sign(payload: bytes, secret: str = "test-secret") -> str:
@@ -118,6 +121,18 @@ class TestWebhookRoute:
     def setup_method(self):
         flask_app.config["TESTING"] = True
         self.client = flask_app.test_client()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._db_path = Path(self._tmpdir.name) / "test.db"
+        self._db_patch = patch.object(udb, "DB_PATH", self._db_path)
+        self._db_patch.start()
+        udb.init_db()
+
+    def teardown_method(self):
+        self._db_patch.stop()
+        try:
+            self._tmpdir.cleanup()
+        except OSError:
+            pass
 
     def test_rejects_bad_signature(self):
         body = _pr_payload(1001, f"deliv-{uuid.uuid4().hex}", "sha-bad")
@@ -140,7 +155,10 @@ class TestWebhookRoute:
     def test_accepts_signed_pull_request(self):
         delivery = f"deliv-{uuid.uuid4().hex}"
         body = _pr_payload(1003, delivery, "sha-accept")
-        with patch.object(app_module, "executor", Mock()) as fake_exec:
+        with (
+            patch.object(app_module, "executor", Mock()) as fake_exec,
+            patch.object(app_module, "is_repo_codeql_provisioned", return_value=True),
+        ):
             resp = self.client.post("/webhook", data=body, headers=_webhook_headers(body, delivery))
         try:
             app_module._analysis_slot.release()
@@ -148,6 +166,7 @@ class TestWebhookRoute:
             pass
         assert resp.status_code == 202
         fake_exec.submit.assert_called_once()
+        assert fake_exec.submit.call_args[0][0] == app_module._run_analysis_slot
 
     def test_duplicate_delivery_skipped(self):
         delivery = f"deliv-{uuid.uuid4().hex}"
@@ -162,6 +181,38 @@ class TestWebhookRoute:
         assert first.status_code == 202
         assert second.status_code == 200
         assert b"duplicate" in second.data
+
+    def test_skips_scan_for_codeql_provisioning_pr(self):
+        delivery = f"deliv-{uuid.uuid4().hex}"
+        data = json.loads(_pr_payload(1006, delivery, "sha-prov"))
+        data["pull_request"]["head"]["ref"] = "ai-risk-guard/codeql-setup"
+        data["repository"]["full_name"] = "acme/demo"
+        body = json.dumps(data).encode()
+        with (
+            patch.object(app_module, "executor", Mock()) as fake_exec,
+            patch.object(app_module, "is_repo_codeql_provisioned", return_value=False),
+        ):
+            resp = self.client.post("/webhook", data=body, headers=_webhook_headers(body, delivery))
+        assert resp.status_code == 200
+        assert b"ignored" in resp.data
+        fake_exec.submit.assert_not_called()
+
+    def test_lazy_provisioning_skipped_when_codeql_toggle_off(self):
+        delivery = f"deliv-{uuid.uuid4().hex}"
+        body = _pr_payload(1009, delivery, "sha-off")
+        with (
+            patch.object(app_module, "executor", Mock()) as fake_exec,
+            patch.object(app_module, "is_repo_codeql_provisioned", return_value=False),
+            patch.object(app_module, "_codeql_enabled_for_owner", return_value=False),
+        ):
+            resp = self.client.post("/webhook", data=body, headers=_webhook_headers(body, delivery))
+        try:
+            app_module._analysis_slot.release()
+        except ValueError:
+            pass
+        assert resp.status_code == 202
+        fake_exec.submit.assert_called_once()
+        assert fake_exec.submit.call_args[0][0] == app_module._run_analysis_slot
 
     def test_ignores_unknown_event(self):
         body = _pr_payload(1005, f"deliv-{uuid.uuid4().hex}", "sha-ign")

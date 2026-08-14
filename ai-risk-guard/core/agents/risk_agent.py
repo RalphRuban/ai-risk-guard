@@ -220,6 +220,7 @@ class RiskAgent(BaseAgent):
                     "policy_violations": details.get("policy", {}).get("violations", []),
                     "details": {**details, "rescan": per_vuln_rescan},
                     "test_results": winner.get("test_results", {}),
+                    "static_only": bool(details.get("static_only")),
                 }
 
                 confidence = calculate_confidence(

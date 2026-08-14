@@ -192,7 +192,7 @@ class TestReportFormatting:
 
     def test_format_report_contains_timestamp(self):
         report = format_report([], scan_number=1)
-        assert "UTC" in report
+        assert "IST" in report
 
     def test_format_report_rate_limited_banner_empty(self):
         report = format_report([], scan_number=1, rate_limited=True)
@@ -251,89 +251,25 @@ class TestReportFormatting:
                 },
                 "risk": 8.5,
                 "validation": {
-                    "success": True,
-                    "score": 0.8,
-                    "details": {
-                        "syntax": {"success": True},
-                        "sandbox": {"success": True},
-                        "rescan": {"success": True},
-                        "policy": {"success": True},
-                    },
-                    "test_results": {
-                        "success": True,
-                        "mode": "local",
-                        "docker_unavailable": True,
-                    },
-                },
-            }
-        ]
-        report = format_report(findings, scan_number=1)
-        assert "Docker unavailable" in report
-        assert "tests ran locally" in report
-
-    def test_format_report_local_fallback_docker_fail_local_pass(self):
-        findings = [
-            {
-                "vulnerability": {
-                    "type": "COMMAND_INJECTION",
-                    "file": "src/server.py",
-                    "line": 10,
-                    "severity": "HIGH",
-                },
-                "risk": 8.5,
-                "validation": {
                     "success": False,
                     "score": 0.5,
                     "details": {
                         "syntax": {"success": True},
-                        "sandbox": {"success": True},
+                        "sandbox": {"success": False},
                         "rescan": {"success": True},
                         "policy": {"success": True},
                     },
                     "test_results": {
                         "success": False,
-                        "mode": "docker",
-                        "local_fallback": {"success": True},
+                        "mode": "unavailable",
+                        "image_unavailable": True,
                     },
                 },
             }
         ]
         report = format_report(findings, scan_number=1)
-        assert "Docker: ❌ failed" in report
-        assert "Local fallback: ✅ passed" in report
-        assert "Fix works outside sandbox" in report
-
-    def test_format_report_local_fallback_both_fail(self):
-        findings = [
-            {
-                "vulnerability": {
-                    "type": "COMMAND_INJECTION",
-                    "file": "src/server.py",
-                    "line": 10,
-                    "severity": "HIGH",
-                },
-                "risk": 8.5,
-                "validation": {
-                    "success": False,
-                    "score": 0.5,
-                    "details": {
-                        "syntax": {"success": True},
-                        "sandbox": {"success": True},
-                        "rescan": {"success": True},
-                        "policy": {"success": True},
-                    },
-                    "test_results": {
-                        "success": False,
-                        "mode": "docker",
-                        "local_fallback": {"success": False},
-                    },
-                },
-            }
-        ]
-        report = format_report(findings, scan_number=1)
-        assert "Docker: ❌ failed" in report
-        assert "Local fallback: ❌ failed" in report
-        assert "Both environments failed" in report
+        assert "Docker sandbox unavailable" in report
+        assert "fail closed" in report
 
     def test_finding_card_renders_expected_failures(self):
         findings = [
@@ -414,110 +350,14 @@ class TestReportFormatting:
                         "output": "demo1_test.py::test_unrelated FAILED\n4 passed, 1 failed in 0.9s\n",
                         "expected_failures": [],
                         "regression_failures": ["test_unrelated"],
-                        "local_fallback": {"success": False},
                     },
                 },
             }
         ]
         report = format_report(findings, scan_number=1)
-        assert "Docker: ❌ failed" in report
-        assert "Local fallback: ❌ failed" in report
-        assert "Both environments failed" in report
-        assert "fix may be incomplete" in report
+        assert "Regression test failure" in report
+        assert "test_unrelated" in report
         assert "✅ No regressions" not in report
-
-    def test_format_report_local_fallback_both_pass(self):
-        findings = [
-            {
-                "vulnerability": {
-                    "type": "COMMAND_INJECTION",
-                    "file": "src/server.py",
-                    "line": 10,
-                    "severity": "HIGH",
-                },
-                "risk": 8.5,
-                "validation": {
-                    "success": True,
-                    "score": 0.9,
-                    "details": {
-                        "syntax": {"success": True},
-                        "sandbox": {"success": True},
-                        "rescan": {"success": True},
-                        "policy": {"success": True},
-                    },
-                    "test_results": {
-                        "success": True,
-                        "mode": "docker",
-                        "local_fallback": {"success": True},
-                    },
-                },
-            }
-        ]
-        report = format_report(findings, scan_number=1)
-        assert "Docker: ✅ passed" in report
-        assert "Local fallback: ✅ passed" in report
-
-    def test_format_report_dedicated_env_comparison_section(self):
-        findings = [
-            {
-                "vulnerability": {"type": "COMMAND_INJECTION", "file": "src/server.py", "line": 10, "severity": "HIGH"},
-                "rule_id": "CMD001",
-                "risk": 8.5,
-                "validation": {
-                    "success": False,
-                    "score": 0.5,
-                    "details": {"sandbox": {"success": True}},
-                    "test_results": {
-                        "success": False,
-                        "mode": "docker",
-                        "local_fallback": {"success": True},
-                    },
-                },
-                "diff": "--- a/src/server.py\n+++ b/src/server.py\n@@ -10 +10 @@\n-os.system(cmd)\n+subprocess.run(cmd, shell=False)",
-            },
-            {
-                "vulnerability": {"type": "HARDCODED_SECRET", "file": "src/config.py", "line": 4, "severity": "HIGH"},
-                "rule_id": "SECRET001",
-                "risk": 7.0,
-                "validation": {
-                    "success": True,
-                    "score": 0.8,
-                    "test_results": {
-                        "success": True,
-                        "mode": "docker",
-                        "local_fallback": {"success": True},
-                    },
-                },
-                "diff": "--- a/src/config.py\n+++ b/src/config.py\n@@ -4 +4 @@\n-PASSWORD = \"sup3rs3cr3t\"\n+PASSWORD = os.environ[\"PASSWORD\"]",
-            },
-        ]
-        report = format_report(findings, scan_number=1, scan_mode="sandbox_and_local_comparison")
-        assert "🧪 Environment Comparison" in report
-        assert "| Rule | Docker | Local | Patch |" in report
-        assert "CMD001" in report
-        assert "SECRET001" in report
-        assert "✅ passed" in report
-
-    def test_format_report_env_comparison_docker_unavailable(self):
-        findings = [
-            {
-                "vulnerability": {"type": "COMMAND_INJECTION", "file": "src/server.py", "line": 10, "severity": "HIGH"},
-                "rule_id": "CMD001",
-                "risk": 8.5,
-                "validation": {
-                    "test_results": {
-                        "success": True,
-                        "mode": "local",
-                        "docker_unavailable": True,
-                    },
-                },
-                "diff": "--- a/src/server.py\n+++ b/src/server.py\n@@ -10 +10 @@\n-os.system()\n+subprocess.run(cmd, shell=False)",
-            }
-        ]
-        report = format_report(findings, scan_number=1, scan_mode="sandbox_and_local_comparison")
-        assert "🧪 Environment Comparison" in report
-        assert "⚠️ unavailable" in report
-        assert "Docker engine unavailable" in report
 
     def test_finding_card_suppressed_patch_still_renders(self):
         findings = [
@@ -537,11 +377,9 @@ class TestReportFormatting:
                 "diff": "",
             }
         ]
-        report = format_report(findings, scan_number=1, scan_mode="sandbox_and_local_comparison")
+        report = format_report(findings, scan_number=1)
         assert "Patch suppressed" in report
-        assert "score too low" in report.lower()
-        assert "🧪 Environment Comparison" in report
-        assert "🧩 suppressed" in report
+        assert "scored too low" in report.lower()
 
     def test_finding_card_renders_mocked_env_substitutions(self):
         findings = [
@@ -564,77 +402,9 @@ class TestReportFormatting:
                 "quality_score": 0.5,
             }
         ]
-        report = format_report(findings, scan_number=1, scan_mode="sandbox_and_local_comparison")
+        report = format_report(findings, scan_number=1, scan_mode="sandbox_with_local_fallback")
         assert "Sandbox mocked env vars: API_TOKEN, API_KEY" in report
         assert "tests asserting the original values fail on substitution" in report
-
-    def test_format_report_env_comparison_absent_default_mode(self):
-        findings = [
-            {
-                "vulnerability": {"type": "COMMAND_INJECTION", "file": "src/server.py", "line": 10, "severity": "HIGH"},
-                "rule_id": "CMD001",
-                "risk": 8.5,
-                "validation": {
-                    "test_results": {
-                        "success": False,
-                        "mode": "docker",
-                        "local_fallback": {"success": True},
-                    },
-                },
-                "diff": "--- a/src/server.py\n+++ b/src/server.py\n@@ -10 +10 @@\n-os.system(cmd)\n+subprocess.run(cmd, shell=False)",
-            }
-        ]
-        report = format_report(findings, scan_number=1)
-        assert "🧪 Environment Comparison" not in report
-
-    def test_format_report_env_comparison_uses_per_finding_rule_id(self):
-        """Each env-comparison row must show its own rule_id, not a stale shared one."""
-        findings = [
-            {
-                "vulnerability": {"type": "COMMAND_INJECTION", "file": "src/a.py", "line": 1, "severity": "HIGH"},
-                "rule_id": "CMD001",
-                "risk": 8.5,
-                "validation": {
-                    "test_results": {
-                        "success": False,
-                        "mode": "docker",
-                        "local_fallback": {"success": False},
-                    },
-                },
-                "diff": "--- a/src/a.py\n+++ b/src/a.py\n@@ -1 +1 @@\n-a\n+b",
-            },
-            {
-                "vulnerability": {"type": "SSRF", "file": "src/b.py", "line": 1, "severity": "HIGH"},
-                "rule_id": "SSRF001",
-                "risk": 8.5,
-                "validation": {
-                    "test_results": {
-                        "success": False,
-                        "mode": "docker",
-                        "local_fallback": {"success": False},
-                    },
-                },
-                "diff": "--- a/src/b.py\n+++ b/src/b.py\n@@ -1 +1 @@\n-a\n+b",
-            },
-            {
-                "vulnerability": {"type": "WEAK_CRYPTOGRAPHY", "file": "src/c.py", "line": 1, "severity": "MEDIUM"},
-                "rule_id": "CRYPTO001",
-                "risk": 5.0,
-                "validation": {
-                    "test_results": {
-                        "success": False,
-                        "mode": "docker",
-                        "local_fallback": {"success": False},
-                    },
-                },
-                "diff": "--- a/src/c.py\n+++ b/src/c.py\n@@ -1 +1 @@\n-a\n+b",
-            },
-        ]
-        report = format_report(findings, scan_number=1, scan_mode="sandbox_and_local_comparison")
-        for rule_id in ("CMD001", "SSRF001", "CRYPTO001"):
-            assert f"`{rule_id}`" in report, f"expected rule {rule_id} to appear in env comparison"
-        assert "CMD001 Hardcoded Secret" not in report
-        assert "SSRF001 Hardcoded Secret" not in report
 
     def test_format_report_shared_patch_note_when_candidate_shared(self):
         """Findings sharing a candidate should render a 'shared across' note."""
@@ -778,28 +548,39 @@ class TestEnrichedComment:
         report = format_report([_rich_finding()], scan_number=1)
         assert "3 passed" in report
 
+    def test_finding_card_shows_static_only_label(self):
+        finding = _rich_finding()
+        finding["validation"]["static_only"] = True
+        finding["validation"]["test_results"] = {
+            "success": False, "mode": "unavailable", "skipped": False, "image_unavailable": True,
+        }
+        report = format_report([finding], scan_number=1)
+        assert "Static-only validation" in report
+        assert "completed statically" in report
+        assert "docker build -f sandbox/Dockerfile.sandbox" in report
+
     def test_finding_card_shows_image_unavailable_note(self):
         finding = _rich_finding()
         finding["validation"]["test_results"] = {
-            "success": False, "mode": "local", "skipped": False, "image_unavailable": True,
+            "success": False, "mode": "unavailable", "skipped": False, "image_unavailable": True,
         }
         report = format_report([finding], scan_number=1)
-        assert "Docker sandbox image not available" in report
+        assert "Docker sandbox unavailable" in report
         assert "docker build -f sandbox/Dockerfile.sandbox" in report
 
     def test_finding_card_shows_image_unavailable_from_sandbox(self):
         finding = _rich_finding()
         finding["validation"]["details"]["sandbox"] = {"success": False, "image_unavailable": True}
         finding["validation"]["test_results"] = {
-            "success": False, "mode": "local", "skipped": False,
+            "success": False, "mode": "unavailable", "skipped": False,
         }
         report = format_report([finding], scan_number=1)
-        assert "Docker sandbox image not available" in report
+        assert "Docker sandbox unavailable" in report
 
     def test_finding_card_suppresses_regression_expected_when_infra_unavailable(self):
         finding = _rich_finding()
         finding["validation"]["test_results"] = {
-            "success": False, "mode": "local", "skipped": False, "image_unavailable": True,
+            "success": False, "mode": "unavailable", "skipped": False, "image_unavailable": True,
         }
         report = format_report([finding], scan_number=1)
         assert "Regression test failure expected" not in report
@@ -807,10 +588,11 @@ class TestEnrichedComment:
     def test_finding_card_shows_docker_unavailable_note(self):
         finding = _rich_finding()
         finding["validation"]["test_results"] = {
-            "success": False, "mode": "local", "skipped": False, "docker_unavailable": True,
+            "success": False, "mode": "unavailable", "skipped": False, "image_unavailable": True,
         }
         report = format_report([finding], scan_number=1)
-        assert "Docker unavailable" in report
+        assert "Docker sandbox unavailable" in report
+        assert "fail closed" in report
 
     def test_finding_card_summary_line_has_no_bold_asterisks(self):
         finding = _rich_finding()
@@ -905,7 +687,7 @@ class TestEnrichedComment:
         assert "2.1.0" in report
         assert "Rules **2026.08**" in report
         assert "PR diff / AST + Regex" in report
-        assert "Docker sandbox + local fallback" in report
+        assert "Docker sandbox (fail-closed)" in report
 
     def test_compliance_section(self):
         report = format_report([_rich_finding()], scan_number=1)
@@ -926,7 +708,7 @@ class TestEnrichedComment:
     def test_empty_report_has_footer_metadata(self):
         report = format_report([], scan_number=1)
         assert "PR diff / AST + Regex" in report
-        assert "Docker sandbox + local fallback" in report
+        assert "Docker sandbox (fail-closed)" in report
         assert "No vulnerabilities detected" in report
 
     def _finding(self, vuln_type, risk, severity, priority, line=1, file="src/server.py"):

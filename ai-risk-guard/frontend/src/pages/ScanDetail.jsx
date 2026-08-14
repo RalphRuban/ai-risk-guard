@@ -232,11 +232,12 @@ export default function ScanDetail() {
       </div>
 
       {/* Scan stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
         <StatBox label="Findings" value={scan?.findings_count ?? findings.length} color="text-blue-400" />
         <StatBox label="Max Risk" value={scan?.max_risk != null ? scan.max_risk.toFixed(1) : '—'} color="text-red-400" />
         <StatBox label="Duration" value={scan?.duration_ms != null ? `${(scan.duration_ms / 1000).toFixed(1)}s` : '—'} />
         <StatBox label="Status" value={(scan?.status || '—').toUpperCase()} color={scan?.status === 'completed' ? 'text-slate-300' : 'text-blue-400'} />
+        <StatBox label="Validation" value={scan?.validation_status === 'pending' ? 'PENDING RE-VALIDATION' : 'VALIDATED'} color={scan?.validation_status === 'pending' ? 'text-amber-400' : 'text-emerald-400'} />
       </div>
 
       {/* Commit details */}

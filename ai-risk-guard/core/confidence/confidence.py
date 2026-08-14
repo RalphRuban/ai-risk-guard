@@ -52,8 +52,6 @@ def calculate_confidence(
             test_mode = test_results.get("mode", "unknown")
             if test_mode == "docker":
                 score += 0.12
-            elif test_mode == "local":
-                score += 0.06
             else:
                 score += 0.04
 
