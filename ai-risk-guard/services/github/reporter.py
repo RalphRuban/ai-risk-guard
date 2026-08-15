@@ -651,7 +651,7 @@ def _format_ist_timestamp(value: str) -> str:
         return value
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M")
+    return dt.astimezone(IST).strftime("%d-%m-%Y %H:%M")
 
 
 def _format_trend(previous):
@@ -758,7 +758,7 @@ def _format_footer(repo_name, pr_number, scan_duration):
 
 def format_report(results, scan_number: int = 1, repo_name: str | None = None, rate_limited: bool = False, action: str | None = None, pr_number: int | None = None, scan_duration: float | None = None, previous_scan_summary: dict | None = None, commit_sha: str | None = None, scan_mode: str | None = None, llm_summary: str | None = None):
     """Build a professional PR comment with collapsible finding cards."""
-    timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M IST")
+    timestamp = datetime.now(IST).strftime("%d-%m-%Y %H:%M IST")
 
     new_results = _sort_findings([r for r in results if r.get("vulnerability", {}).get("is_new", True)])
     legacy_results = _sort_findings([r for r in results if not r.get("vulnerability", {}).get("is_new", True)])
@@ -781,7 +781,8 @@ def format_report(results, scan_number: int = 1, repo_name: str | None = None, r
         report += (
             "\n> ⚠️ **AI Rate Limit** — Gemini API rate limit reached (429). "
             "Retries exhausted. "
-            "Analysis was completed with deterministic methods only.\n"
+            "LLM features were disabled for this scan; AI-assisted sections fell "
+            "back to deterministic generation.\n"
         )
 
     if not results:

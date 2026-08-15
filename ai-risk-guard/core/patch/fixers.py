@@ -633,12 +633,16 @@ class PathTraversalFix(BaseTransformer):
         if self.matches(node):
             self.matched = True
         base_dir = self._extract_base_dir(node.args[0])
+        path_arg, base_node = self._strip_base_prefix(node.args[0], base_dir)
+        if path_arg is None:
+            # A real base directory was detected but its leading prefix could
+            # not be stripped safely. Leave the open() call untouched rather
+            # than double the directory: safe_path_join(base, base/path)
+            # resolves inside base/base, which silently passes the prefix check.
+            return node
         node.args[0] = ast.Call(
             func=ast.Name(id="safe_path_join", ctx=ast.Load()),
-            args=[
-                ast.Constant(value=base_dir),
-                node.args[0],
-            ],
+            args=[base_node, path_arg],
             keywords=[],
         )
         self.wrapped_opens += 1
@@ -692,6 +696,82 @@ class PathTraversalFix(BaseTransformer):
             value_name = self._get_func_name(node.value)
             return f"{value_name}.{node.attr}" if value_name else node.attr
         return ""
+
+    def _strip_base_prefix(self, node, base_dir):
+        """Remove a leading copy of ``base_dir`` from the path expression.
+
+        ``safe_path_join(base_dir, path)`` assumes *path* is relative to
+        *base_dir*. When the original expression already embeds the base (e.g.
+        ``f"{DATA_DIR}/{task_id}.txt"`` with ``DATA_DIR = "./task_attachments"``),
+        wrapping it verbatim doubles the directory. This strips the leading base
+        so the example becomes ``safe_path_join(DATA_DIR, f"{task_id}.txt")``.
+
+        Returns ``(path_node, base_node)`` where *base_node* is the base as a
+        literal constant or, when it came from a module-level variable, the
+        variable name itself. Returns ``(None, None)`` when *base_dir* was
+        extracted but the prefix could not be stripped safely.
+        """
+        if base_dir in (None, ".", ""):
+            return node, ast.Constant(value=".")
+
+        def _norm(value: str) -> str:
+            return value.strip().lstrip("/.\\").rstrip("/\\")
+
+        base = base_dir.rstrip("/\\")
+
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = node.left
+            if (
+                isinstance(left, ast.Constant)
+                and isinstance(left.value, str)
+                and left.value.rstrip("/\\").endswith(base)
+            ):
+                return node.right, ast.Constant(value=base_dir)
+            return None, None
+
+        if isinstance(node, ast.JoinedStr):
+            norm_base = _norm(base)
+            if not norm_base:
+                return None, None
+            values = list(node.values)
+            accum = ""
+            i = 0
+            base_node = ast.Constant(value=base_dir)
+            while i < len(values):
+                part = values[i]
+                if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                    text = part.value
+                elif isinstance(part, ast.FormattedValue) and isinstance(part.value, ast.Name):
+                    resolved = self._resolve_module_constant(
+                        self.source_code, part.value.id
+                    )
+                    if not resolved:
+                        break
+                    text = resolved
+                else:
+                    break
+                candidate = _norm(accum + text)
+                if not norm_base.startswith(candidate):
+                    break
+                if i == 0 and isinstance(part, ast.FormattedValue) and isinstance(
+                    part.value, ast.Name
+                ):
+                    base_node = part.value
+                accum += text
+                i += 1
+                if _norm(accum) == norm_base:
+                    break
+            if i == 0 or _norm(accum) != norm_base:
+                return None, None
+            while i < len(values) and isinstance(values[i], ast.Constant) and self._is_separator_only(
+                values[i].value
+            ):
+                i += 1
+            if i >= len(values):
+                return None, None
+            return ast.JoinedStr(values=values[i:]), base_node
+
+        return None, None
 
 
 class SsrfFix(BaseTransformer):

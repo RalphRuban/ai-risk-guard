@@ -1657,7 +1657,7 @@ class TestFeature345Regressions:
         vuln = {"type": "PATH_TRAVERSAL", "line": 2, "code": 'with open(f"{DATA_DIR}/{task_id}.txt") as f:'}
         result = apply_patch_to_content(code, vuln)
         assert result["ast_success"] is True
-        assert "safe_path_join('./task_attachments'" in result["patched_code"].replace('"', "'")
+        assert "safe_path_join(DATA_DIR, f'{task_id}.txt')" in result["patched_code"].replace('"', "'")
 
     def test_path_traversal_skips_separator_only_falls_back_to_dot(self):
         code = 'with open(f"{base}/{file}") as f:\n    pass\n'
@@ -1665,6 +1665,45 @@ class TestFeature345Regressions:
         result = apply_patch_to_content(code, vuln)
         assert result["ast_success"] is True
         assert "safe_path_join('.'" in result["patched_code"].replace('"', "'")
+
+    def test_path_traversal_fstring_no_base_doubling(self):
+        """The extracted base must not be doubled inside safe_path_join."""
+        code = (
+            'import os\n'
+            'DATA_DIR = "./task_attachments"\n'
+            'def read_task(task_id):\n'
+            '    with open(f"{DATA_DIR}/{task_id}.txt") as f:\n'
+            '        return f.read()\n'
+        )
+        vuln = {"type": "PATH_TRAVERSAL", "line": 4, "code": 'with open(f"{DATA_DIR}/{task_id}.txt") as f:'}
+        result = apply_patch_to_content(code, vuln)
+        assert result["ast_success"] is True
+        patched = result["patched_code"]
+        assert "safe_path_join(DATA_DIR, f'{task_id}.txt')" in patched.replace('"', "'")
+        ns: dict = {}
+        exec(compile(patched, "<patched>", "exec"), ns)
+        joined = ns["safe_path_join"](ns["DATA_DIR"], "42.txt").replace("\\", "/")
+        assert joined.endswith("task_attachments/42.txt")
+        assert "task_attachments/task_attachments" not in joined
+
+    def test_path_traversal_binop_strips_constant_base(self):
+        code = (
+            'import os\n'
+            'def read_log(name):\n'
+            '    with open("/uploads/" + name) as f:\n'
+            '        return f.read()\n'
+        )
+        vuln = {"type": "PATH_TRAVERSAL", "line": 3, "code": 'with open("/uploads/" + name) as f:'}
+        result = apply_patch_to_content(code, vuln)
+        assert result["ast_success"] is True
+        patched = result["patched_code"]
+        assert "safe_path_join('/uploads/', name)" in patched.replace('"', "'")
+        ns: dict = {}
+        exec(compile(patched, "<patched>", "exec"), ns)
+        joined = ns["safe_path_join"]("/uploads/", "log.txt").replace("\\", "/")
+        assert joined.endswith("/uploads/log.txt")
+        assert "uploads/uploads" not in joined
+
 
     def test_path_traversal_wraps_every_open_call(self):
         """All open() calls must be wrapped, not just the finding's own call."""

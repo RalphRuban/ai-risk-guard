@@ -23,7 +23,7 @@ export default function Settings() {
   const [error, setError] = useState(null)
 
   const [settings, setSettings] = useState(null)
-  const [settingsOptions, setSettingsOptions] = useState({ scan_modes: [], networks: [] })
+  const [settingsOptions, setSettingsOptions] = useState({ networks: [] })
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState(null)
 
@@ -44,7 +44,7 @@ export default function Settings() {
 
       const settingsData = await getSettings()
       setSettings(settingsData.settings || {})
-      setSettingsOptions(settingsData.options || { scan_modes: [], networks: [] })
+      setSettingsOptions(settingsData.options || { networks: [] })
 
       setError(null)
     } catch (err) {
@@ -63,7 +63,6 @@ export default function Settings() {
     setSaveMsg(null)
     try {
       const res = await updateSettings({
-        scan_mode: settings?.scan_mode,
         sandbox_network: settings?.sandbox_network,
         codeql_enabled: Boolean(settings?.codeql_enabled),
       })
@@ -183,99 +182,85 @@ export default function Settings() {
           )}
         </Card>
 
-        {/* Scan Configuration */}
-        <Card title="Scan Configuration">
-          <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
-            Applies to scans from your repositories.
-          </p>
+        {/* Scan settings */}
+        <div className="lg:col-span-2">
+          <Card title="Scan Configuration">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div>
+                <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+                  Applies to scans from your repositories.
+                </p>
 
-          <div className="text-xs mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg"
-            style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-            <span className={`w-2 h-2 rounded-full ${settingsOptions.docker_available ? 'bg-blue-400' : 'bg-red-400'}`} />
-            Docker {settingsOptions.docker_available ? 'available' : 'unavailable — scans will fail'}
-          </div>
+                <div className="text-xs mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg"
+                  style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                  <span className={`w-2 h-2 rounded-full ${settingsOptions.docker_available ? 'bg-blue-400' : 'bg-red-400'}`} />
+                  Docker {settingsOptions.docker_available ? 'available' : 'unavailable — scans will fail'}
+                </div>
 
-          <label className="block stat-label mb-2">Scan mode</label>
-          <div className="space-y-3 mb-6">
-            {[
-              { id: 'docker_only', label: 'Docker only', desc: 'Run scans in the hardened Docker sandbox. Scans fail if Docker is unavailable. (default)' },
-            ].map((mode) => (
-              <label key={mode.id} className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="scan_mode"
-                  className="mt-0.5 accent-blue-600"
-                  checked={settings?.scan_mode === mode.id}
-                  onChange={() => setSettings((s) => ({ ...s, scan_mode: mode.id }))}
-                />
-                <span>
-                  <span className="text-sm font-medium block">{mode.label}</span>
-                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{mode.desc}</span>
-                </span>
-              </label>
-            ))}
-          </div>
+                <label className="block stat-label mb-2">Sandbox network</label>
+                <div className="space-y-3">
+                  {[
+                    { id: 'none', label: 'None (secure)', desc: 'No network access inside the sandbox — most secure. (default)' },
+                    { id: 'bridge', label: 'Bridge', desc: 'Allow outbound network inside the sandbox. Only needed for dependency installs.' },
+                  ].map((net) => (
+                    <label key={net.id} className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="sandbox_network"
+                        className="mt-0.5 accent-blue-600"
+                        checked={settings?.sandbox_network === net.id}
+                        onChange={() => setSettings((s) => ({ ...s, sandbox_network: net.id }))}
+                      />
+                      <span>
+                        <span className="text-sm font-medium block">{net.label}</span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{net.desc}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
 
-          <label className="block stat-label mb-2">Sandbox network</label>
-          <div className="space-y-3 mb-6">
-            {[
-              { id: 'none', label: 'None (secure)', desc: 'No network access inside the sandbox — most secure. (default)' },
-              { id: 'bridge', label: 'Bridge', desc: 'Allow outbound network inside the sandbox. Only needed for dependency installs.' },
-            ].map((net) => (
-              <label key={net.id} className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="sandbox_network"
-                  className="mt-0.5 accent-blue-600"
-                  checked={settings?.sandbox_network === net.id}
-                  onChange={() => setSettings((s) => ({ ...s, sandbox_network: net.id }))}
-                />
-                <span>
-                  <span className="text-sm font-medium block">{net.label}</span>
-                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{net.desc}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-
-          {saveMsg && (
-            <div className={`mb-4 p-3 rounded-lg text-sm font-medium ${saveMsg.type === 'success' ? 'text-slate-300' : 'text-red-400'}`}
-              style={{ backgroundColor: saveMsg.type === 'success' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${saveMsg.type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
-              {saveMsg.text}
+              <div>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="codeql_enabled"
+                    className="mt-0.5 accent-blue-600 w-4 h-4"
+                    checked={settings?.codeql_enabled !== false}
+                    onChange={(e) => setSettings((s) => ({ ...s, codeql_enabled: e.target.checked }))}
+                  />
+                  <span>
+                    <span className="text-sm font-medium block">CodeQL enable feature</span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      When disabled, new repositories are never auto-provisioned with CodeQL and no
+                      setup pull requests are opened on your behalf.
+                    </span>
+                  </span>
+                </label>
+                <p className="mt-4 text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                  Do this by your own accord — we only recommend using it for an easy CI/CD workflow.
+                </p>
+              </div>
             </div>
-          )}
 
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="btn-accent disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save configuration'}
-          </button>
-        </Card>
+            {saveMsg && (
+              <div className={`mt-8 mb-4 p-3 rounded-lg text-sm font-medium text-center ${saveMsg.type === 'success' ? 'text-slate-300' : 'text-red-400'}`}
+                style={{ backgroundColor: saveMsg.type === 'success' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${saveMsg.type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+                {saveMsg.text}
+              </div>
+            )}
 
-        {/* CodeQL */}
-        <Card title="CodeQL">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              name="codeql_enabled"
-              className="mt-0.5 accent-blue-600 w-4 h-4"
-              checked={settings?.codeql_enabled !== false}
-              onChange={(e) => setSettings((s) => ({ ...s, codeql_enabled: e.target.checked }))}
-            />
-            <span>
-              <span className="text-sm font-medium block">CodeQL enable feature</span>
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                When disabled, new repositories are never auto-provisioned with CodeQL and no
-                setup pull requests are opened on your behalf.
-              </span>
-            </span>
-          </label>
-          <p className="mt-4 text-xs italic" style={{ color: 'var(--text-muted)' }}>
-            Do this by your own accord — we only recommend using it for an easy CI/CD workflow.
-          </p>
-        </Card>
+            <div className="flex justify-center">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="btn-accent disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : 'Save configuration'}
+              </button>
+            </div>
+          </Card>
+        </div>
       </div>
 
       {/* Connected repositories */}

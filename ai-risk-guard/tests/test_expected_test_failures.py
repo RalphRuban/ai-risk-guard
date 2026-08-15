@@ -332,6 +332,56 @@ class TestClassify:
         assert result["expected"] == []
         assert result["regressions"] == []
 
+    def test_runtime_exception_on_changed_symbol_is_regression(self):
+        """A failing test that RAISES (not asserts) on patched code is a
+        regression, even though it references a changed symbol."""
+        exc_tests = (
+            "from tests.demo import fetch_url, hash_content\n\n"
+            "def test_fetch_url():\n"
+            "    fetch_url('https://example.com')\n\n"
+            "def test_hash_content():\n"
+            "    assert hash_content('hello') == '5d41402abc4b2a76b9719d911017c592'\n"
+        )
+        exc_output = (
+            "demo_test.py::test_hash_content FAILED                 [ 50%]\n"
+            "demo_test.py::test_fetch_url FAILED                    [100%]\n\n"
+            "____ test_hash_content ____\n\n"
+            "    def test_hash_content():\n"
+            ">       assert hash_content('hello') == '5d41402abc4b2a76b9719d911017c592'\n"
+            "E       AssertionError: assert '2cf24dba...' == '5d41402a...'\n\n"
+            "____ test_fetch_url ____\n\n"
+            "    def test_fetch_url():\n"
+            ">       fetch_url('https://example.com')\n"
+            "E       TypeError: 'NoneType' object is not callable\n\n"
+            "============================= short test summary info ==============================\n"
+            "FAILED demo_test.py::test_hash_content\n"
+            "FAILED demo_test.py::test_fetch_url\n"
+            "========================= 0 passed, 2 failed in 0.5s ==============================\n"
+        )
+        failing = ["test_hash_content", "test_fetch_url"]
+        result = classify(ORIGINAL, PATCHED, exc_tests, failing, exc_output)
+        assert result["expected"] == ["test_hash_content"]
+        assert result["regressions"] == ["test_fetch_url"]
+
+    def test_assertion_failure_is_expected_even_with_traceback(self):
+        """AssertionError in the traceback keeps a pinning test "expected"."""
+        result = classify(
+            ORIGINAL,
+            PATCHED,
+            TESTS,
+            ["test_secret_exists"],
+            "____ test_secret_exists ____\n"
+            ">       assert API_TOKEN == 'tok_live_a1b2c3d4e5f6g7h8'\n"
+            "E       AssertionError: assert 'tok_live_a1b2c3d4e5f6g7h8' is None\n",
+        )
+        assert result["expected"] == ["test_secret_exists"]
+        assert result["regressions"] == []
+
+    def test_fallback_heuristic_when_no_traceback(self):
+        """Without traceback info the reference-based heuristic still applies."""
+        result = classify(ORIGINAL, PATCHED, TESTS, ["test_secret_exists"])
+        assert result["expected"] == ["test_secret_exists"]
+
 
 class TestAnalyzeTestResults:
     def test_full_run_separates_expected_from_regressions(self):
@@ -351,3 +401,33 @@ class TestAnalyzeTestResults:
             "test_extract_links",
             "test_export_json",
         }
+
+    def test_analyze_flags_runtime_exception_as_regression(self):
+        exc_tests = (
+            "from tests.demo import fetch_url, hash_content\n\n"
+            "def test_fetch_url():\n"
+            "    fetch_url('https://example.com')\n\n"
+            "def test_hash_content():\n"
+            "    assert hash_content('hello') == '5d41402abc4b2a76b9719d911017c592'\n"
+        )
+        exc_output = (
+            "demo_test.py::test_hash_content FAILED                 [ 50%]\n"
+            "demo_test.py::test_fetch_url FAILED                    [100%]\n\n"
+            "____ test_hash_content ____\n\n"
+            "    def test_hash_content():\n"
+            ">       assert hash_content('hello') == '5d41402abc4b2a76b9719d911017c592'\n"
+            "E       AssertionError: assert '2cf24dba...' == '5d41402a...'\n\n"
+            "____ test_fetch_url ____\n\n"
+            "    def test_fetch_url():\n"
+            ">       fetch_url('https://example.com')\n"
+            "E       TypeError: 'NoneType' object is not callable\n\n"
+            "============================= short test summary info ==============================\n"
+            "FAILED demo_test.py::test_hash_content\n"
+            "FAILED demo_test.py::test_fetch_url\n"
+            "========================= 0 passed, 2 failed in 0.5s ==============================\n"
+        )
+        analysis = analyze_test_results(ORIGINAL, PATCHED, exc_tests, exc_output)
+        assert analysis["expected"] == 1
+        assert analysis["regressions"] == 1
+        assert analysis["expected_failures"] == ["test_hash_content"]
+        assert analysis["regression_failures"] == ["test_fetch_url"]

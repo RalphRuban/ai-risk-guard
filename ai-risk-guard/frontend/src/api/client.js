@@ -73,7 +73,7 @@ export async function getRepoScans(repoId) {
 
 export async function getRepoFindings(repoId) {
   const { data } = await api.get(`/repos/${repoId}/findings`)
-  return data
+  return data.findings
 }
 
 export async function enableCodeql(repoId) {

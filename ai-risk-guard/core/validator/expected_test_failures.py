@@ -21,6 +21,37 @@ _TEST_OUTCOME_RE = re.compile(
     r"::([A-Za-z_]\w*)(?:\[[^\]]*\])?\s+(PASSED|FAILED|ERROR|SKIPPED)"
 )
 
+# pytest separates each failing test's traceback with a header line like
+# ``____ test_read_attachment ____``; the traceback body contains ``E   <Exc>:``
+# lines giving the exact exception type.
+_TEST_HEADER_RE = re.compile(r"_{3,}\s*([A-Za-z_][\w.]*)(?:\[[^\]]*\])?\s*_{3,}")
+_EXCEPTION_TYPE_RE = re.compile(r"^E\s+([A-Za-z_][\w.]*)\s*:")
+
+
+def _test_failure_types(output: str) -> dict[str, str]:
+    """Map each failing test to the exception type from its pytest traceback.
+
+    Expected failures are assertion failures on pre-patch behavior. When a
+    failing test instead raised a runtime exception (e.g. ``FileNotFoundError``
+    because the patch broke the code path the test exercises), the traceback
+    shows that exception type on an ``E   ...:`` line — the discriminator that
+    prevents a patch-induced failure from being masked as an "expected" failure.
+    """
+    if not output:
+        return {}
+    types: dict[str, str] = {}
+    current: str | None = None
+    for raw in output.splitlines():
+        line = raw.strip()
+        header = _TEST_HEADER_RE.search(line)
+        if header:
+            current = header.group(1)
+            continue
+        exc = _EXCEPTION_TYPE_RE.match(line)
+        if exc and current:
+            types.setdefault(current, exc.group(1))
+    return types
+
 
 def _module_symbols(source: str) -> dict[str, str]:
     """Map top-level symbol names to their normalized AST dump."""
@@ -114,11 +145,13 @@ def classify(
     patched: str,
     test_source: str,
     failing_names: list[str],
+    output: str = "",
 ) -> dict[str, list[str]]:
     """Split failing test names into expected (pin removed behavior) vs regressions."""
     expected: list[str] = []
     regressions: list[str] = []
     changed = changed_symbols(original, patched)
+    failure_types = _test_failure_types(output)
 
     funcs: dict[str, Any] = {}
     try:
@@ -137,7 +170,14 @@ def classify(
             regressions.append(name)
             continue
         if _referenced_names(fn) & changed:
-            expected.append(name)
+            exc_type = failure_types.get(base)
+            if exc_type is not None and exc_type != "AssertionError":
+                # The test raised a runtime exception rather than asserting on
+                # removed behavior — the patch likely broke the code path the
+                # test exercises (e.g. FileNotFoundError from a doubled path).
+                regressions.append(name)
+            else:
+                expected.append(name)
         else:
             regressions.append(name)
 
@@ -154,7 +194,7 @@ def analyze_test_results(
     outcomes = parse_test_outcomes(output)
     failing = [name for name, status in outcomes.items() if status in ("FAILED", "ERROR")]
     passing = [name for name, status in outcomes.items() if status == "PASSED"]
-    result = classify(original, patched, test_source, failing)
+    result = classify(original, patched, test_source, failing, output)
     return {
         "passing_tests": passing,
         "failing_tests": failing,

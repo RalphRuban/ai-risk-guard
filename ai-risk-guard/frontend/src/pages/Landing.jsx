@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 
 const MEDIA_VIDEO = '' // drop your cinematic *.mp4 here
 const MEDIA_POSTER = '' // matching *.png poster
@@ -36,7 +36,6 @@ function GitHubMark() {
 }
 
 export default function Landing() {
-  const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const hamburgerRef = useRef(null)
   const menuRef = useRef(null)
@@ -85,11 +84,6 @@ export default function Landing() {
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  const onEmailSubmit = (e) => {
-    e.preventDefault()
-    navigate('/auth/login')
-  }
-
   return (
     <section className="hero" id="top">
       {/* Media layer */}
@@ -121,10 +115,6 @@ export default function Landing() {
               </Link>
             ))}
           </div>
-          <a href="/auth/login" className="hero__nav-cta">
-            Access console
-          </a>
-
           <button
             ref={hamburgerRef}
             type="button"
@@ -154,27 +144,12 @@ export default function Landing() {
             Automatic detection, validation, and patching on every pull request.
           </p>
 
-          <form className="hero__form" noValidate onSubmit={onEmailSubmit}>
-            <label className="sr-only" htmlFor="work-email">
-              Work email
-            </label>
-            <input
-              id="work-email"
-              className="hero__input"
-              type="email"
-              name="email"
-              placeholder="Work email"
-              autoComplete="email"
-              required
-            />
-            <button type="submit" className="hero__btn hero__btn--ghost">
-              Proceed with email
-            </button>
+          <div className="hero__form">
             <a href="/auth/login" className="hero__btn hero__btn--accent hero__btn-icon">
               <GitHubMark />
               Sign in with GitHub
             </a>
-          </form>
+          </div>
 
           <a className="hero__referral" href="#invite">
             Need an invite?
@@ -217,15 +192,6 @@ export default function Landing() {
             {link.label}
           </Link>
         ))}
-        <a
-          href="/auth/login"
-          className="hero__menu-cta"
-          style={{ '--stagger-d': `${0.18 + menuLinks.length * 0.07}s` }}
-          onClick={closeMenu}
-          tabIndex={menuOpen ? 0 : -1}
-        >
-          Access console
-        </a>
       </div>
     </section>
   )
