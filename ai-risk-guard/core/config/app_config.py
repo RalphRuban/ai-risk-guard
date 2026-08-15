@@ -109,6 +109,17 @@ class CIRunnerConfig(BaseModel):
     token_env: str = Field("CI_VALIDATION_TOKEN", description="Env var holding a GitHub token allowed to dispatch repository_dispatch to workflow_repo")
 
 
+class DeploymentConfig(BaseModel):
+    dashboard_url: str = Field(
+        "",
+        description="Public dashboard URL shown in PR comment footers. Falls back to APP_DASHBOARD_URL env, then http://localhost:8000/dashboard",
+    )
+    sarif_information_uri: str = Field(
+        "",
+        description="SARIF tool informationUri. Falls back to SARIF_INFORMATION_URI env, then the default project URL",
+    )
+
+
 class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)  # type: ignore[arg-type]
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)  # type: ignore[arg-type]
@@ -125,3 +136,4 @@ class AppConfig(BaseModel):
     regression_explain: RegressionExplainConfig = Field(default_factory=RegressionExplainConfig)  # type: ignore[arg-type]
     validation: ValidationConfig = Field(default_factory=ValidationConfig)  # type: ignore[arg-type]
     ci_runner: CIRunnerConfig = Field(default_factory=CIRunnerConfig)  # type: ignore[arg-type]
+    deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)  # type: ignore[arg-type]

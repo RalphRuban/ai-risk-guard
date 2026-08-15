@@ -113,3 +113,10 @@ ci_runner:
   workflow_repo: ""
   event_type: "ai-risk-guard-validate"
   base_url: ""
+
+deployment:
+  # Public-facing URLs used in user-facing output. Leave empty to fall back to
+  # the APP_DASHBOARD_URL / SARIF_INFORMATION_URI env vars, then to sensible
+  # local defaults in code.
+  dashboard_url: ""
+  sarif_information_uri: ""

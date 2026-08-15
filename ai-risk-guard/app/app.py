@@ -135,6 +135,10 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() in ("1", "true", "yes")
 
+# Trust X-Forwarded-Proto / X-Forwarded-Host from the first hop. Constraint
+# (accepted): the reverse proxy MUST be the only local client of this process,
+# otherwise a client could spoof the forwarded headers. Nginx on 127.0.0.1 is
+# the sole upstream, so trusting the first hop is safe here.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
 
@@ -1863,9 +1867,21 @@ def api_dashboard():
 
 
 @app.route("/api/metrics/prometheus", methods=["GET"])
-@login_required
 def prometheus_metrics():
-    """Returns Prometheus metrics in exposition format."""
+    """Returns Prometheus metrics in exposition format.
+
+    When METRICS_SCRAPE_TOKEN is set, Prometheus can scrape this path without a
+    browser session using `Authorization: Bearer <token>` (constant-time
+    comparison). When it is unset, the endpoint keeps requiring a normal
+    authenticated dashboard session.
+    """
+    scrape_token = os.environ.get("METRICS_SCRAPE_TOKEN", "").strip()
+    if scrape_token:
+        expected = f"Bearer {scrape_token}"
+        if not secrets.compare_digest(request.headers.get("Authorization", ""), expected):
+            return jsonify({"error": "Unauthorized"}), 401
+    elif not session.get("user") and not session.get("github_id"):
+        return jsonify({"error": "Unauthorized"}), 401
     from app.metrics import get_content_type, get_metrics
     return get_metrics(), 200, {'Content-Type': get_content_type()}
 
@@ -2190,7 +2206,7 @@ def not_found(e):
 
 @app.errorhandler(500)
 def internal_error(e):
-    logger.error(f"Unhandled server error: {e}", "SERVER")
+    logger.error(f"Unhandled server error: {e}", "SERVER", exc_info=True)
     return jsonify({"error": "Internal server error"}), 500
 
 

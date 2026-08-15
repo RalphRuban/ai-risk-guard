@@ -6,6 +6,7 @@ import base64
 import collections
 import gzip
 import json
+import os
 import re
 import time
 from datetime import UTC, datetime, timedelta, timezone
@@ -727,9 +728,19 @@ def _format_decision_banner(action, total_new, informational=0):
     return "> ✅ **No vulnerabilities detected**"
 
 
+def _dashboard_url() -> str:
+    """Public dashboard URL for PR comment footers (env > config > default)."""
+    return (
+        os.environ.get("APP_DASHBOARD_URL")
+        or config.app.deployment.dashboard_url
+        or "http://localhost:8000/dashboard"
+    )
+
+
 def _format_footer(repo_name, pr_number, scan_duration):
     """Professional footer with version, duration, pipeline, and links."""
     duration = f"{scan_duration:.0f}s" if scan_duration is not None else "—"
+    dashboard_url = _dashboard_url()
     lines = [
         (
             f"🔐 **{TOOL_NAME}** v{TOOL_VERSION} | Rules **{RULES_VERSION}** | "
@@ -738,9 +749,9 @@ def _format_footer(repo_name, pr_number, scan_duration):
         ),
     ]
     if repo_name and pr_number:
-        lines.append(f"✅ Check: `ai-risk-guard/validation` in [Checks](https://github.com/{repo_name}/pull/{pr_number}/checks) | 📊 Dashboard: local instance")
+        lines.append(f"✅ Check: `ai-risk-guard/validation` in [Checks](https://github.com/{repo_name}/pull/{pr_number}/checks) | 📊 [Dashboard]({dashboard_url})")
     else:
-        lines.append("✅ Check: `ai-risk-guard/validation` in Checks | 📊 Dashboard: local instance")
+        lines.append(f"✅ Check: `ai-risk-guard/validation` in Checks | 📊 [Dashboard]({dashboard_url})")
     lines.append("💡 **Feedback**: React with 🚀 to accept a patch or 👎 to reject it.")
     return "\n".join(lines)
 

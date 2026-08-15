@@ -457,3 +457,15 @@ class TestSARIFEnrichment:
         sarif = self._build_result()
         assert sarif["runs"][0]["tool"]["driver"]["version"] == "2.1.0"
 
+    def test_information_uri_default(self, monkeypatch):
+        monkeypatch.delenv("SARIF_INFORMATION_URI", raising=False)
+        sarif = self._build_result()
+        uri = sarif["runs"][0]["tool"]["driver"]["informationUri"]
+        assert uri == "https://github.com/ralphje/ai-risk-guard"
+
+    def test_information_uri_env_override(self, monkeypatch):
+        monkeypatch.setenv("SARIF_INFORMATION_URI", "https://example.com/security")
+        sarif = self._build_result()
+        uri = sarif["runs"][0]["tool"]["driver"]["informationUri"]
+        assert uri == "https://example.com/security"
+

@@ -5,9 +5,17 @@ Replaces the in-memory analysis_data dict in main.py.
 """
 
 import json
+import logging
 import os
 import sqlite3
 from pathlib import Path
+
+log = logging.getLogger("ai_risk_guard.db")
+
+# Migration ledger: bumped whenever init_db() lands a new schema change. Set on
+# the DB as PRAGMA user_version after a fully successful init so a partially
+# migrated database is caught on the next boot.
+DB_SCHEMA_VERSION = 1
 
 # Resolve the DB path against the repo root so the app works no matter which
 # working directory it is launched from (systemd, cron, tests, WSGI). Absolute
@@ -145,6 +153,21 @@ def _migrate_validation_status():
 
 def init_db():
     """Create tables if they do not exist. Call once at startup."""
+    # Ledger check: a previous run that crashed mid-migration leaves user_version
+    # stale, so boot with a loud warning instead of silently proceeding.
+    try:
+        with _connect() as conn:
+            current_version = conn.execute("PRAGMA user_version").fetchone()[0] or 0
+        if current_version and current_version != DB_SCHEMA_VERSION:
+            log.warning(
+                "Database schema version %s does not match expected %s — "
+                "re-running idempotent migrations",
+                current_version,
+                DB_SCHEMA_VERSION,
+            )
+    except sqlite3.Error:
+        log.exception("Could not read schema version")
+
     with _connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS dashboard (
@@ -425,13 +448,17 @@ def init_db():
     _migrate_fk_constraints()
     # Idempotent schema upgrade: validation_status column for deferred re-validation.
     _migrate_validation_status()
-    # Query-planning indexes for the most frequent access patterns.
+# Query-planning indexes for the most frequent access patterns.
     _create_indexes()
+    # Ledger: all idempotent migrations succeeded, so record the schema version.
+    # Any earlier boot that crashed mid-migration never reached this line.
+    with _connect() as conn:
+        conn.execute(f"PRAGMA user_version = {DB_SCHEMA_VERSION}")
+
     # Best-effort housekeeping (expired cache rows, VACUUM).
     with _connect() as conn:
         _purge_expired_cache_rows(conn)
     _maybe_vacuum()
-
 
 def _create_indexes():
     """Create indexes for the most frequent query patterns."""
@@ -471,10 +498,18 @@ def _purge_expired_cache_rows(conn: sqlite3.Connection):
     conn.commit()
 
 
-def _maybe_vacuum(threshold_mb: int = 5):
-    """VACUUM reclaims free pages; only worth it once the DB is large."""
+def _maybe_vacuum(min_freelist_pages: int = 1000, freelist_fraction: float = 0.3):
+    """VACUUM reclaims free pages, but only when free pages actually dominate
+    the file. Heavy vacuuming is left to the nightly backup cron
+    (deploy/azure-vm-setup.sh) so startup never stalls on a large DB.
+    """
     try:
-        if DB_PATH.exists() and DB_PATH.stat().st_size > threshold_mb * 1024 * 1024:
+        if not DB_PATH.exists():
+            return
+        with _connect() as conn:
+            page_count = conn.execute("PRAGMA page_count").fetchone()[0] or 0
+            freelist = conn.execute("PRAGMA freelist_count").fetchone()[0] or 0
+        if freelist >= min_freelist_pages and page_count > 0 and freelist / page_count >= freelist_fraction:
             with _connect() as conn:
                 conn.execute("VACUUM")
     except sqlite3.OperationalError:

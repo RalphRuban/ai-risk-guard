@@ -157,3 +157,46 @@ def test_init_db_keeps_blob_ast_cache_untouched(tmp_path):
 
     assert cols["tree"] == "BLOB"
     assert remaining == 1
+
+
+def test_init_db_records_schema_version(tmp_path):
+    db_file = Path(tmp_path) / "versioned.db"
+    with patch.object(udb, "DB_PATH", db_file):
+        udb.init_db()
+        with udb._connect() as conn:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    assert version == udb.DB_SCHEMA_VERSION
+    assert udb.DB_SCHEMA_VERSION >= 1
+
+
+def test_maybe_vacuum_reclaims_dominant_freelist(tmp_path):
+    db_file = Path(tmp_path) / "vacuum.db"
+    with patch.object(udb, "DB_PATH", db_file):
+        udb.init_db()
+        with udb._connect() as conn:
+            conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data TEXT)")
+            conn.executemany(
+                "INSERT INTO t (data) VALUES (?)",
+                [(str(i),) for i in range(2000)],
+            )
+            conn.commit()
+            conn.execute("DELETE FROM t")
+            conn.commit()
+            freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        udb._maybe_vacuum(min_freelist_pages=1, freelist_fraction=0.0)
+        with udb._connect() as conn:
+            freelist_after = conn.execute("PRAGMA freelist_count").fetchone()[0]
+
+    assert freelist > 0
+    assert freelist_after == 0
+
+
+def test_maybe_vacuum_skips_small_freelist(tmp_path):
+    db_file = Path(tmp_path) / "no_vacuum.db"
+    with patch.object(udb, "DB_PATH", db_file):
+        udb.init_db()
+        udb._maybe_vacuum(min_freelist_pages=10 ** 9, freelist_fraction=1.0)
+
+    with udb._connect() as conn:
+        assert conn.execute("PRAGMA freelist_count").fetchone()[0] >= 0

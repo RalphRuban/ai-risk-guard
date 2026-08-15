@@ -101,7 +101,7 @@ class ConfigRegistry:
             # Fail fast: a malformed config file or a Pydantic validation error
             # must never silently run the app on defaults. Set CONFIG_STRICT=0
             # (or false/no/off) to restore the old lenient dev behavior.
-            self._logger.error("Failed to load config %s: %s", yaml_path, e)
+            self._logger.exception("Failed to load config %s", yaml_path)
             if _strict_enabled():
                 raise RuntimeError(
                     f"Invalid configuration file {yaml_path}: {e} "

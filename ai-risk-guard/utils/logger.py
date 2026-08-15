@@ -8,6 +8,7 @@ Structured logger using Python's built-in logging module.
 
 import json
 import logging
+import os
 import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
@@ -16,6 +17,23 @@ from pathlib import Path
 LOG_FILE    = Path("data/logs.json")
 MAX_BYTES   = 5 * 1024 * 1024   # 5 MB per file
 BACKUP_COUNT = 3                  # keep 3 rotated backups
+
+_LEVEL_NAMES = set(logging.getLevelNamesMapping())
+
+
+def _configured_level() -> str:
+    """Resolve the effective logging level: LOG_LEVEL env > app.yaml > INFO."""
+    env_level = os.environ.get("LOG_LEVEL", "").strip().upper()
+    if env_level in _LEVEL_NAMES:
+        return env_level
+    try:
+        from core.config import config
+        level = config.app.logging.level.upper()
+        if level in _LEVEL_NAMES:
+            return level
+    except Exception:
+        pass
+    return "INFO"
 
 
 class _JsonFormatter(logging.Formatter):
@@ -45,7 +63,13 @@ def _build_logger() -> logging.Logger:
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     log = logging.getLogger("ai_risk_guard")
-    log.setLevel(logging.DEBUG)
+    # Honor the configured level (INFO in production) instead of hardcoding DEBUG.
+    log.setLevel(_configured_level())
+    # Contain JSON records at ai_risk_guard: stop propagation to the root logger
+    # so a configured root handler (logging.basicConfig) can never duplicate or
+    # reformat them. Child loggers (ai_risk_guard.cache.*, etc.) inherit this
+    # level and propagate into these handlers.
+    log.propagate = False
 
     if log.handlers:          # avoid duplicate handlers on reload
         return log

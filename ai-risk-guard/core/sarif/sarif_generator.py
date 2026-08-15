@@ -9,6 +9,7 @@ import os
 from datetime import timedelta
 from typing import Any
 
+from core.config import config
 from core.metadata.versions import RULES_VERSION, TOOL_VERSION
 from core.metadata.vuln_metadata import RULE_IDS, SECURITY_SEVERITY
 from core.models.analysis import AnalysisResult
@@ -277,12 +278,17 @@ class SARIFGenerator:
 
     def _build_tool(self) -> dict[str, Any]:
         """Build the tool information."""
+        information_uri = (
+            os.environ.get("SARIF_INFORMATION_URI")
+            or config.app.deployment.sarif_information_uri
+            or "https://github.com/ralphje/ai-risk-guard"
+        )
         return {
             "driver": {
                 "name": self.tool_name,
                 "version": self.tool_version,
                 "semanticVersion": self.tool_version,
-                "informationUri": "https://github.com/ralphje/ai-risk-guard",
+                "informationUri": information_uri,
                 "rules": self._build_rules()
             }
         }

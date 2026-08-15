@@ -5,6 +5,7 @@ Tests for report formatting and scan number extraction.
 
 
 from services.github.reporter import (
+    _format_footer,
     _risk_bar,
     extract_targeted_hunks,
     format_report,
@@ -936,5 +937,22 @@ def test_extract_targeted_hunks_returns_full_diff_when_no_findings():
     diff = "@@ -1,1 +1,1 @@\n-a\n+b\n"
     out = extract_targeted_hunks(diff, [])
     assert out == diff
+
+
+def test_footer_dashboard_url_default(monkeypatch):
+    monkeypatch.delenv("APP_DASHBOARD_URL", raising=False)
+    footer = _format_footer(None, None, None)
+    assert "http://localhost:8000/dashboard" in footer
+
+
+def test_footer_dashboard_url_env_override(monkeypatch):
+    monkeypatch.setenv("APP_DASHBOARD_URL", "https://guard.example.com/dashboard")
+    footer = _format_footer(None, None, None)
+    assert "https://guard.example.com/dashboard" in footer
+
+
+def test_footer_checks_link_uses_pr_url():
+    footer = _format_footer("acme/app", 12, None)
+    assert "https://github.com/acme/app/pull/12/checks" in footer
 
 
