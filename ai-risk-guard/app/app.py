@@ -6,16 +6,19 @@ Phase 2 GitHub Webhook & Analytics Server
 Professional Enterprise Edition
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import ast
 import base64
 import functools
 import hashlib
 import hmac
 import json
-import os
 import secrets
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -129,11 +132,12 @@ if not app.secret_key:
     )
 app.config["MAX_CONTENT_LENGTH"] = config.app.webhook.max_request_size_bytes
 
-# Session cookie hardening. Secure defaults on; set SESSION_COOKIE_SECURE=false
-# for plain-HTTP local development.
+# Session cookie hardening. SameSite=Lax is required for the OAuth callback:
+# GitHub redirects back to /auth/callback as a cross-site top-level navigation,
+# and SameSite=Strict would drop the cookie that holds the CSRF state.
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() in ("1", "true", "yes")
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
 
 # Trust X-Forwarded-Proto / X-Forwarded-Host from the first hop. Constraint
 # (accepted): the reverse proxy MUST be the only local client of this process,
@@ -224,7 +228,7 @@ def add_security_headers(response):
     origin = f" {FRONTEND_ORIGIN}" if FRONTEND_ORIGIN else ""
     response.headers["Content-Security-Policy"] = (
         f"default-src 'self'{origin}; "
-        f"script-src 'self'{origin}; "
+        f"script-src 'self'{origin} https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
         f"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         f"font-src https://fonts.gstatic.com; "
         f"img-src 'self' data: https://avatars.githubusercontent.com"
