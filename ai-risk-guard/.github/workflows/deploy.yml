@@ -1,0 +1,70 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+# Deploys the committed tree (including the built static/frontend bundle,
+# which is kept in-repo) to the Azure VM and restarts the systemd unit.
+# Fires only after the CI gate (ruff, mypy, pytest, frontend build) succeeds
+# on a push to main, so a failing test never reaches production.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Azure VM
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync code to VM
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+        run: |
+          rsync -az --delete -e "ssh -i $HOME/.ssh/deploy_key" \
+            --exclude '.git' \
+            --exclude 'venv' \
+            --exclude 'frontend/node_modules' \
+            --exclude 'frontend/dist' \
+            --exclude 'data' \
+            --exclude '.env' \
+            --exclude '.mypy_cache' \
+            --exclude '.pytest_cache' \
+            --exclude '.ruff_cache' \
+            ./ "${VM_USER}@${VM_HOST}:/opt/ai-risk-guard/"
+
+      - name: Restart service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/ai-risk-guard
+            /opt/ai-risk-guard/venv/bin/pip install --quiet -r requirements.txt
+            sudo systemctl restart ai-risk-guard
+            sleep 3
+            curl -fsS http://127.0.0.1:8000/api/health/ready || exit 1
+            curl -fsS http://127.0.0.1:8000/api/health && echo

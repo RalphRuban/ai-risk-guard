@@ -1,0 +1,26 @@
+[Unit]
+Description=AI Risk Guard - GitHub PR security scanner
+Documentation=https://github.com/RalphRuban/ai-risk-guard
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=airiskguard
+Group=airiskguard
+WorkingDirectory=/opt/ai-risk-guard
+EnvironmentFile=/etc/ai-risk-guard.env
+ExecStart=/opt/ai-risk-guard/venv/bin/python app/app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+# The app needs to reach Docker (sandbox validation) and write its SQLite
+# DB under /opt/ai-risk-guard/data.
+ReadWritePaths=/opt/ai-risk-guard/data
+
+[Install]
+WantedBy=multi-user.target
