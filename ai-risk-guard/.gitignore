@@ -23,6 +23,11 @@ dist/
 # 3. Local Data & Logs
 data/
 data/*.log
+*.db
+*.sqlite
+*.sqlite3
+tasks.db
+ci-work/
 frontend/node_modules/
 frontend/dist/
 
