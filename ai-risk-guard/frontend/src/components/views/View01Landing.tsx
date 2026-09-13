@@ -3,6 +3,7 @@ import { HeroScene } from '../landing/HeroScene';
 import { CommandCenterConsole } from '../landing/CommandCenterConsole';
 import { WorkstationMatrixStrip } from '../landing/WorkstationMatrixStrip';
 import { FinalCTA } from '../landing/FinalCTA';
+import FadeContent from '../bits/Animations/FadeContent/FadeContent';
 import { ShieldCADState, ViewId } from '../../types';
 
 interface View01LandingProps {
@@ -28,17 +29,22 @@ export const View01Landing: React.FC<View01LandingProps> = ({
         scrollProgress={scrollProgress}
         cadState={cadState}
         onCADChange={onCADChange}
-        onOpenDocs={onOpenDocs}
       />
 
       {/* 02: Interactive Real Engineering Console Component (Scanner, Diff, Sandbox, Policy) */}
-      <CommandCenterConsole onNavigate={onNavigate} />
+      <FadeContent blur threshold={0.12}>
+        <CommandCenterConsole onNavigate={onNavigate} />
+      </FadeContent>
 
       {/* 03: Direct Workstation Matrix Launch Strip */}
-      <WorkstationMatrixStrip onNavigate={onNavigate} />
+      <FadeContent blur delay={200} threshold={0.1}>
+        <WorkstationMatrixStrip onNavigate={onNavigate} />
+      </FadeContent>
 
       {/* 04: Minimal Authoritative CTA */}
-      <FinalCTA onNavigate={onNavigate} onOpenDocs={onOpenDocs} />
+      <FadeContent blur delay={300} threshold={0.12}>
+        <FinalCTA onNavigate={onNavigate} onOpenDocs={onOpenDocs} />
+      </FadeContent>
     </div>
   );
 };

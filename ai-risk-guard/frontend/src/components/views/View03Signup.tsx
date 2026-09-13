@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Github, Shield, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Github, Shield, CheckCircle2 } from 'lucide-react';
 import { getMe } from '../../api/client';
 import { CyberButton } from '../common/CyberButton';
 import { TacticalBracket } from '../common/TacticalBracket';
@@ -12,6 +12,7 @@ interface View03SignupProps {
 
 export const View03Signup: React.FC<View03SignupProps> = ({ onSignupSuccess, onNavigate }) => {
   const [orgName, setOrgName] = useState('enterprise-secops');
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   React.useEffect(() => {
     getMe()
@@ -20,7 +21,9 @@ export const View03Signup: React.FC<View03SignupProps> = ({ onSignupSuccess, onN
           onSignupSuccess();
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        setFetchError('Unable to reach the backend service. Please try again shortly.');
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -30,36 +33,36 @@ export const View03Signup: React.FC<View03SignupProps> = ({ onSignupSuccess, onN
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center px-4 py-12">
-      <div className="relative w-full max-w-lg bg-[#030914] border border-[#1E3C5C] p-6 sm:p-10 shadow-[0_0_50px_rgba(8,123,255,0.2)]">
-        <TacticalBracket color="#00CFFF" size="lg" />
+      <div className="relative w-full max-w-lg bg-[#050B16] border border-[#17406E] p-6 sm:p-10 shadow-[0_0_50px_rgba(0,123,255,0.2)]">
+        <TacticalBracket color="#00A8FF" size="lg" />
 
         <div className="text-center space-y-3 mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-[#087BFF]/20 border border-[#00CFFF]/60 rounded-sm mb-2">
-            <Shield className="w-7 h-7 text-[#00CFFF]" />
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-[#007BFF]/20 border border-[#00A8FF]/60 rounded-sm mb-2">
+            <Shield className="w-7 h-7 text-[#00A8FF]" />
           </div>
-          <div className="font-mono text-[10px] text-[#00CFFF] tracking-widest">
+          <div className="font-mono text-[10px] text-[#00A8FF] tracking-widest">
             ORGANIZATION ONBOARDING CLEARANCE
           </div>
           <h2 className="font-headline font-black text-2xl sm:text-3xl text-white">
             Register Security Org
           </h2>
-          <p className="font-mono text-xs text-[#8D9AAA] max-w-md mx-auto">
+          <p className="font-mono text-xs text-[#9AA7B8] max-w-md mx-auto">
             Initialize organization-wide AST scanning, policy gateway gates, and container sandbox isolation.
           </p>
         </div>
 
         <div className="space-y-4 mb-8">
-          <div className="p-3 bg-[#06101F] border border-[#1E3C5C] space-y-1 font-mono text-xs">
-            <span className="text-[#8D9AAA] text-[10px] block">ORGANIZATION DOMAIN / SLUG</span>
+          <div className="p-3 bg-[#050B16] border border-[#17406E] space-y-1 font-mono text-xs">
+            <span className="text-[#9AA7B8] text-[10px] block">ORGANIZATION DOMAIN / SLUG</span>
             <input
               type="text"
               value={orgName}
               onChange={(e) => setOrgName(e.target.value)}
-              className="bg-transparent border-none outline-none text-[#F1F5F9] w-full font-mono text-sm"
+              className="bg-transparent border-none outline-none text-[#E4EBF3] w-full font-mono text-sm"
             />
           </div>
 
-          <div className="p-3 bg-[#02050B] border border-[#1E3C5C] font-mono text-[11px] text-[#8D9AAA] space-y-1.5">
+          <div className="p-3 bg-[#020B1A] border border-[#17406E] font-mono text-[11px] text-[#9AA7B8] space-y-1.5">
             <div className="text-white font-semibold">INITIALIZATION CHECKLIST:</div>
             <div className="flex items-center space-x-2 text-[10px]">
               <CheckCircle2 className="w-3 h-3 text-[#00E699]" />
@@ -87,11 +90,17 @@ export const View03Signup: React.FC<View03SignupProps> = ({ onSignupSuccess, onN
             CONTINUE WITH GITHUB
           </CyberButton>
 
+          {fetchError && (
+            <div className="p-3 bg-[#7E1120]/20 border border-[#FF1E2D] text-[#FF1E2D] font-mono text-[11px] leading-relaxed">
+              {fetchError}
+            </div>
+          )}
+
           <button
             onClick={() => onNavigate('login')}
-            className="w-full py-2 text-center font-mono text-xs text-[#8D9AAA] hover:text-[#65E7FF] transition-colors"
+            className="w-full py-2 text-center font-mono text-xs text-[#9AA7B8] hover:text-[#5BC9FF] transition-colors"
           >
-            Already have an active clearance? <span className="underline text-[#00CFFF]">Authenticate Now</span>
+            Already have an active clearance? <span className="underline text-[#00A8FF]">Authenticate Now</span>
           </button>
         </div>
       </div>

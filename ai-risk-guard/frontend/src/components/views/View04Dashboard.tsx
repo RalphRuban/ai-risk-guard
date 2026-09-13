@@ -6,20 +6,12 @@ import { ViewId } from '../../types';
 import { DashboardData, AttentionFinding, getDashboardData } from '../../api/client';
 import { 
   Shield, 
-  AlertTriangle, 
   CheckCircle, 
   RefreshCw, 
-  Cpu, 
   GitPullRequest, 
-  ArrowRight, 
-  TrendingUp, 
   Terminal, 
   Box, 
-  Activity, 
-  Lock, 
-  Zap, 
   ExternalLink,
-  Layers,
   Filter
 } from 'lucide-react';
 
@@ -99,6 +91,11 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
 
   return (
     <div className="py-6 px-4 sm:px-8 xl:px-12 w-full max-w-[1780px] mx-auto space-y-8">
+      {error && (
+        <div className="p-3 bg-[#7E1120]/20 border border-[#FF1E2D] text-[#FF1E2D] font-mono text-[11px] leading-relaxed">
+          {error}
+        </div>
+      )}
       {/* Master Rugged Chassis Enclosure */}
       <RuggedFrame
         unitCode="UNIT-04 // SEC-OPS COMMAND"
@@ -128,25 +125,25 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
         }
       >
         {/* Top Control & HUD Sub-bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 mb-6 border-b border-[#184384]/60 font-mono text-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 mb-6 border-b border-[#17406E]/60 font-mono text-xs">
           <div className="space-y-1">
-<div className="flex items-center space-x-2 text-[11px] text-[#CBD5E1]">
-            <span className="w-2 h-2 rounded-full bg-[#FF2A4B] animate-ping" />
-            <span className="font-semibold tracking-widest text-[#F8FAFC]">ACTIVE SURVEILLANCE MESH: {(dashboard?.repos?.length ?? 0)} REPOSITORIES MONITORED</span>
+<div className="flex items-center space-x-2 text-[11px] text-[#D9E1EA]">
+            <span className="w-2 h-2 rounded-full bg-[#FF1E2D] animate-ping" />
+            <span className="font-semibold tracking-widest text-[#EAF1F8]">ACTIVE SURVEILLANCE MESH: {(dashboard?.repos?.length ?? 0)} REPOSITORIES MONITORED</span>
           </div>
-            <p className="text-[11px] text-[#94A3B8]">
+            <p className="text-[11px] text-[#A7B4C4]">
               Continuous AST Abstract Syntax Analysis & Airgapped Container Sandbox Isolation Engine
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-[10px]">
-            <div className="px-3 py-1.5 rounded bg-[#030C22] border border-[#184384] flex items-center space-x-2">
-              <span className="text-[#94A3B8]">CLOCK:</span>
-              <span className="text-[#E2E8F0] font-bold">2026-09-06 22:28 UTC</span>
+            <div className="px-3 py-1.5 rounded bg-[#050B16] border border-[#17406E] flex items-center space-x-2">
+              <span className="text-[#A7B4C4]">CLOCK:</span>
+              <span className="text-[#DEE7F0] font-bold">2026-09-06 22:28 UTC</span>
             </div>
-            <div className="px-3 py-1.5 rounded bg-[#030C22] border border-[#184384] flex items-center space-x-2">
-              <span className="text-[#94A3B8]">GATE STATUS:</span>
-              <span className={high > 0 ? 'text-[#FF2A4B] font-bold' : 'text-[#00E699] font-bold'}>
+            <div className="px-3 py-1.5 rounded bg-[#050B16] border border-[#17406E] flex items-center space-x-2">
+              <span className="text-[#A7B4C4]">GATE STATUS:</span>
+              <span className={high > 0 ? 'text-[#FF1E2D] font-bold' : 'text-[#00E699] font-bold'}>
                 {loading ? 'LOADING...' : `${dashboard?.week_summary?.open_now ?? 0} OPEN FINDINGS / ${dashboard?.week_summary?.new_7d ?? 0} NEW (7D)`}
               </span>
             </div>
@@ -156,69 +153,69 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
         {/* 4 High-End Rugged Telemetry KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
           {/* KPI 1: Monitored Repos */}
-          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2556]/80 via-[#061533]/90 to-[#020716]/98 border-2 border-[#184384] shadow-[0_12px_36px_rgba(2,7,22,0.8)] group hover:border-[#FF2A4B]/60 transition-all">
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#CBD5E1] shadow-[0_0_6px_#E2E8F0]" />
-            <div className="flex items-center justify-between text-[#94A3B8] text-[11px] font-mono mb-2">
+          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2A5E]/80 via-[#071A2E]/90 to-[#020B1A]/98 border-2 border-[#17406E] shadow-[0_12px_36px_rgba(2,11,26,0.8)] group hover:border-[#FF1E2D]/60 transition-all">
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#D9E1EA] shadow-[0_0_6px_#DEE7F0]" />
+            <div className="flex items-center justify-between text-[#A7B4C4] text-[11px] font-mono mb-2">
               <span className="tracking-wider uppercase font-semibold">PROTECTED REPOS</span>
-              <GitPullRequest className="w-4 h-4 text-[#CBD5E1]" />
+              <GitPullRequest className="w-4 h-4 text-[#D9E1EA]" />
             </div>
-            <div className="font-headline font-black text-3xl xl:text-4xl text-[#F8FAFC] tracking-wide mb-2">
+            <div className="font-headline font-black text-3xl xl:text-4xl text-[#EAF1F8] tracking-wide mb-2">
               {dashboard?.repos?.length ?? 0}
             </div>
-            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#184384]/50 pt-2 text-[#CBD5E1]">
+            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
               <span className="flex items-center space-x-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#FF2A4B] animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#FF1E2D] animate-pulse" />
                 <span>{dashboard?.week_summary?.open_now ?? 0} OPEN FINDINGS</span>
               </span>
-              <span className="text-[#F8FAFC] font-bold">{dashboard?.week_summary?.scans_7d ?? 0} SCANS/7D</span>
+              <span className="text-[#EAF1F8] font-bold">{dashboard?.week_summary?.scans_7d ?? 0} SCANS/7D</span>
             </div>
           </div>
 
           {/* KPI 2: Cumulative AST Scans */}
-          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2556]/80 via-[#061533]/90 to-[#020716]/98 border-2 border-[#184384] shadow-[0_12px_36px_rgba(2,7,22,0.8)] group hover:border-[#FF2A4B]/60 transition-all">
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#CBD5E1] shadow-[0_0_6px_#E2E8F0]" />
-            <div className="flex items-center justify-between text-[#94A3B8] text-[11px] font-mono mb-2">
+          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2A5E]/80 via-[#071A2E]/90 to-[#020B1A]/98 border-2 border-[#17406E] shadow-[0_12px_36px_rgba(2,11,26,0.8)] group hover:border-[#FF1E2D]/60 transition-all">
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#D9E1EA] shadow-[0_0_6px_#DEE7F0]" />
+            <div className="flex items-center justify-between text-[#A7B4C4] text-[11px] font-mono mb-2">
               <span className="tracking-wider uppercase font-semibold">CUMULATIVE AST SCANS</span>
-              <Terminal className="w-4 h-4 text-[#FF2A4B]" />
+              <Terminal className="w-4 h-4 text-[#FF1E2D]" />
             </div>
-            <div className="font-headline font-black text-3xl xl:text-4xl text-[#FF2A4B] tracking-wide mb-2">
+            <div className="font-headline font-black text-3xl xl:text-4xl text-[#FF1E2D] tracking-wide mb-2">
               {dashboard?.total_prs ?? 0}
             </div>
-            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#184384]/50 pt-2 text-[#CBD5E1]">
+            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
               <span>AVG RISK SCORE: {score.toFixed(2)}</span>
-              <span className="text-[#E2E8F0] font-bold">{(dashboard?.cache_hit_rate ?? 0).toFixed(0)}% CACHE HIT</span>
+              <span className="text-[#DEE7F0] font-bold">{(dashboard?.cache_hit_rate ?? 0).toFixed(0)}% CACHE HIT</span>
             </div>
           </div>
 
           {/* KPI 3: Mitigated Vulnerabilities */}
-          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2556]/80 via-[#061533]/90 to-[#020716]/98 border-2 border-[#184384] shadow-[0_12px_36px_rgba(2,7,22,0.8)] group hover:border-[#FF2A4B]/60 transition-all">
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#FF2A4B] shadow-[0_0_6px_#FF2A4B]" />
-            <div className="flex items-center justify-between text-[#94A3B8] text-[11px] font-mono mb-2">
+          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2A5E]/80 via-[#071A2E]/90 to-[#020B1A]/98 border-2 border-[#17406E] shadow-[0_12px_36px_rgba(2,11,26,0.8)] group hover:border-[#FF1E2D]/60 transition-all">
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#FF1E2D] shadow-[0_0_6px_#FF1E2D]" />
+            <div className="flex items-center justify-between text-[#A7B4C4] text-[11px] font-mono mb-2">
               <span className="tracking-wider uppercase font-semibold">VULNERABILITIES MITIGATED</span>
-              <Shield className="w-4 h-4 text-[#CBD5E1]" />
+              <Shield className="w-4 h-4 text-[#D9E1EA]" />
             </div>
-            <div className="font-headline font-black text-3xl xl:text-4xl text-[#F8FAFC] tracking-wide mb-2">
+            <div className="font-headline font-black text-3xl xl:text-4xl text-[#EAF1F8] tracking-wide mb-2">
               {dashboard?.total_vulnerabilities ?? 0}
             </div>
-            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#184384]/50 pt-2 text-[#CBD5E1]">
+            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
               <span className="text-[#00E699] font-bold">{(remediationRate * 100).toFixed(0)}% REMEDIATED</span>
-              <span className="text-[#CBD5E1]">{high} OPEN HIGH</span>
+              <span className="text-[#D9E1EA]">{high} OPEN HIGH</span>
             </div>
           </div>
 
           {/* KPI 4: Autonomous Pass Rate */}
-          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2556]/80 via-[#061533]/90 to-[#020716]/98 border-2 border-[#184384] shadow-[0_12px_36px_rgba(2,7,22,0.8)] group hover:border-[#CBD5E1]/60 transition-all">
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#CBD5E1] shadow-[0_0_6px_#E2E8F0]" />
-            <div className="flex items-center justify-between text-[#94A3B8] text-[11px] font-mono mb-2">
+          <div className="relative p-5 rounded-lg bg-gradient-to-br from-[#0B2A5E]/80 via-[#071A2E]/90 to-[#020B1A]/98 border-2 border-[#17406E] shadow-[0_12px_36px_rgba(2,11,26,0.8)] group hover:border-[#D9E1EA]/60 transition-all">
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#D9E1EA] shadow-[0_0_6px_#DEE7F0]" />
+            <div className="flex items-center justify-between text-[#A7B4C4] text-[11px] font-mono mb-2">
               <span className="tracking-wider uppercase font-semibold">SANDBOX VALIDATION PASS</span>
-              <Box className="w-4 h-4 text-[#CBD5E1]" />
+              <Box className="w-4 h-4 text-[#D9E1EA]" />
             </div>
-            <div className="font-headline font-black text-3xl xl:text-4xl text-[#E2E8F0] tracking-wide mb-2">
+            <div className="font-headline font-black text-3xl xl:text-4xl text-[#DEE7F0] tracking-wide mb-2">
               {(remediationRate * 100).toFixed(1)}%
             </div>
-            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#184384]/50 pt-2 text-[#CBD5E1]">
+            <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
               <span>REMEDIATION RATE</span>
-              <span className="text-[#FF2A4B] font-bold">{low} LOW / {medium} MEDIUM</span>
+              <span className="text-[#FF1E2D] font-bold">{low} LOW / {medium} MEDIUM</span>
             </div>
           </div>
         </div>
@@ -239,45 +236,45 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                   <div className="relative w-44 h-44 flex items-center justify-center">
                     <svg className="w-full h-full transform -rotate-90">
                       {/* Base Background Track */}
-                      <circle cx="88" cy="88" r="68" stroke="#081D45" strokeWidth="16" fill="none" />
+                      <circle cx="88" cy="88" r="68" stroke="#0B2A5E" strokeWidth="16" fill="none" />
                       {/* Medium/Low Track (Navy/Silver) */}
-                      <circle cx="88" cy="88" r="68" stroke="#1E64D4" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="130" strokeLinecap="round" />
+                      <circle cx="88" cy="88" r="68" stroke="#007BFF" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="130" strokeLinecap="round" />
                       {/* High Track (Titanium Silver) */}
-                      <circle cx="88" cy="88" r="68" stroke="#CBD5E1" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="280" strokeLinecap="round" />
+                      <circle cx="88" cy="88" r="68" stroke="#D9E1EA" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="280" strokeLinecap="round" />
                       {/* Critical Track (Threat Red) */}
-                      <circle cx="88" cy="88" r="68" stroke="#FF2A4B" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="375" strokeLinecap="round" />
+                      <circle cx="88" cy="88" r="68" stroke="#FF1E2D" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="375" strokeLinecap="round" />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center font-mono text-center">
-                      <span className="font-headline font-bold text-2xl text-[#F8FAFC]">{total}</span>
-                      <span className="text-[9px] text-[#94A3B8] tracking-widest uppercase">SCANNED SINK NODES</span>
+                      <span className="font-headline font-bold text-2xl text-[#EAF1F8]">{total}</span>
+                      <span className="text-[9px] text-[#A7B4C4] tracking-widest uppercase">SCANNED SINK NODES</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Risk Distribution Breakdown Bars */}
                 <div className="space-y-2.5 font-mono text-xs">
-                  <div className="flex items-center justify-between p-3 rounded bg-[#020716] border border-[#184384] hover:border-[#FF2A4B]/60 transition-colors">
+                  <div className="flex items-center justify-between p-3 rounded bg-[#020B1A] border border-[#17406E] hover:border-[#FF1E2D]/60 transition-colors">
                     <span className="flex items-center space-x-2.5">
-                      <span className="w-3 h-3 rounded-sm bg-[#FF2A4B] shadow-[0_0_8px_#FF2A4B]" />
-                      <span className="text-[#F8FAFC] font-medium">HIGH RISK (severity=HIGH)</span>
+                      <span className="w-3 h-3 rounded-sm bg-[#FF1E2D] shadow-[0_0_8px_#FF1E2D]" />
+                      <span className="text-[#EAF1F8] font-medium">HIGH RISK (severity=HIGH)</span>
                     </span>
-                    <span className="text-[#FF2A4B] font-bold">{high} ({highPct}%)</span>
+                    <span className="text-[#FF1E2D] font-bold">{high} ({highPct}%)</span>
                   </div>
 
-                  <div className="flex items-center justify-between p-3 rounded bg-[#020716] border border-[#184384] hover:border-[#1E64D4]/60 transition-colors">
+                  <div className="flex items-center justify-between p-3 rounded bg-[#020B1A] border border-[#17406E] hover:border-[#007BFF]/60 transition-colors">
                     <span className="flex items-center space-x-2.5">
-                      <span className="w-3 h-3 rounded-sm bg-[#1E64D4] shadow-[0_0_8px_#1E64D4]" />
-                      <span className="text-[#CBD5E1] font-medium">MEDIUM</span>
+                      <span className="w-3 h-3 rounded-sm bg-[#007BFF] shadow-[0_0_8px_#007BFF]" />
+                      <span className="text-[#D9E1EA] font-medium">MEDIUM</span>
                     </span>
-                    <span className="text-[#CBD5E1] font-bold">{medium} ({mediumPct}%)</span>
+                    <span className="text-[#D9E1EA] font-bold">{medium} ({mediumPct}%)</span>
                   </div>
 
-                  <div className="flex items-center justify-between p-3 rounded bg-[#020716] border border-[#184384] hover:border-[#CBD5E1]/60 transition-colors">
+                  <div className="flex items-center justify-between p-3 rounded bg-[#020B1A] border border-[#17406E] hover:border-[#D9E1EA]/60 transition-colors">
                     <span className="flex items-center space-x-2.5">
-                      <span className="w-3 h-3 rounded-sm bg-[#CBD5E1] shadow-[0_0_8px_rgba(203,213,225,0.6)]" />
-                      <span className="text-[#E2E8F0] font-medium">LOW</span>
+                      <span className="w-3 h-3 rounded-sm bg-[#D9E1EA] shadow-[0_0_8px_rgba(217,225,234,0.6)]" />
+                      <span className="text-[#DEE7F0] font-medium">LOW</span>
                     </span>
-                    <span className="text-[#CBD5E1] font-bold">{low} ({lowPct}%)</span>
+                    <span className="text-[#D9E1EA] font-bold">{low} ({lowPct}%)</span>
                   </div>
                 </div>
               </div>
@@ -304,31 +301,31 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                   ].map((ag) => (
                     <div 
                       key={ag.name} 
-                      className="p-3.5 rounded bg-[#020716] border border-[#184384] hover:border-[#CBD5E1]/60 transition-all space-y-2 group"
+                      className="p-3.5 rounded bg-[#020B1A] border border-[#17406E] hover:border-[#D9E1EA]/60 transition-all space-y-2 group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[#F8FAFC] font-semibold text-[11px] group-hover:text-white transition-colors">
+                        <span className="text-[#EAF1F8] font-semibold text-[11px] group-hover:text-white transition-colors">
                           {ag.name}
                         </span>
-                        <span className={`w-2 h-2 rounded-full ${ag.tagColor === 'red' ? 'bg-[#FF2A4B] animate-ping' : 'bg-[#CBD5E1]'}`} />
+                        <span className={`w-2 h-2 rounded-full ${ag.tagColor === 'red' ? 'bg-[#FF1E2D] animate-ping' : 'bg-[#D9E1EA]'}`} />
                       </div>
-                      <div className="text-[10px] text-[#94A3B8]">{ag.role}</div>
+                      <div className="text-[10px] text-[#A7B4C4]">{ag.role}</div>
                       
                       {/* Mini Load Bar */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-[10px]">
-                          <span className="text-[#94A3B8]">UTILIZATION:</span>
-                          <span className={ag.tagColor === 'red' ? 'text-[#FF2A4B] font-bold' : 'text-[#E2E8F0] font-bold'}>{ag.load}</span>
+                          <span className="text-[#A7B4C4]">UTILIZATION:</span>
+                          <span className={ag.tagColor === 'red' ? 'text-[#FF1E2D] font-bold' : 'text-[#DEE7F0] font-bold'}>{ag.load}</span>
                         </div>
-                        <div className="w-full h-1.5 bg-[#081D45] rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-[#0B2A5E] rounded-full overflow-hidden">
                           <div 
-                            className={`h-full rounded-full ${ag.tagColor === 'red' ? 'bg-[#FF2A4B]' : 'bg-[#CBD5E1]'}`} 
+                            className={`h-full rounded-full ${ag.tagColor === 'red' ? 'bg-[#FF1E2D]' : 'bg-[#D9E1EA]'}`} 
                             style={{ width: ag.load }}
                           />
                         </div>
                       </div>
 
-                      <span className="text-[9px] text-[#CBD5E1] block pt-1 border-t border-[#184384]/40 font-bold">
+                      <span className="text-[9px] text-[#D9E1EA] block pt-1 border-t border-[#17406E]/40 font-bold">
                         {ag.status}
                       </span>
                     </div>
@@ -336,17 +333,17 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                 </div>
 
                 {/* Tactical Airgap Consensus Banner */}
-                <div className="p-3.5 rounded bg-[#030C22] border border-[#184384] flex items-center justify-between text-[11px] text-[#94A3B8]">
+                <div className="p-3.5 rounded bg-[#050B16] border border-[#17406E] flex items-center justify-between text-[11px] text-[#A7B4C4]">
                   <div className="flex items-center space-x-2">
-                    <Shield className="w-4 h-4 text-[#FF2A4B]" />
-                    <span className="text-[#F8FAFC] font-semibold">MULTI-AGENT AIRGAP PROTOCOL:</span>
+                    <Shield className="w-4 h-4 text-[#FF1E2D]" />
+                    <span className="text-[#EAF1F8] font-semibold">MULTI-AGENT AIRGAP PROTOCOL:</span>
                     <span>100% of candidate AST patches undergo 0.5 CPU Docker sandbox verification before PR creation.</span>
                   </div>
                   <CyberButton
                     variant="outline"
                     size="sm"
                     onClick={() => onNavigate('agents')}
-                    icon={<ExternalLink className="w-3 h-3 text-[#CBD5E1]" />}
+                    icon={<ExternalLink className="w-3 h-3 text-[#D9E1EA]" />}
                   >
                     INSPECT MESH
                   </CyberButton>
@@ -360,13 +357,13 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-mono text-xs">
             <div className="flex items-center space-x-2">
-              <Filter className="w-4 h-4 text-[#CBD5E1]" />
-              <span className="text-[#F8FAFC] font-semibold text-sm">AUTONOMOUS INTERVENTIONS & AST REMEDIATION STREAM</span>
+              <Filter className="w-4 h-4 text-[#D9E1EA]" />
+              <span className="text-[#EAF1F8] font-semibold text-sm">AUTONOMOUS INTERVENTIONS & AST REMEDIATION STREAM</span>
             </div>
 
             {/* Severity Filter Buttons */}
             <div className="flex items-center space-x-2">
-              <span className="text-[#94A3B8] text-[11px]">FILTER:</span>
+              <span className="text-[#A7B4C4] text-[11px]">FILTER:</span>
               {(['ALL', 'CRITICAL', 'HIGH', 'MEDIUM'] as const).map(sev => (
                 <button
                   key={sev}
@@ -374,9 +371,9 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                   className={`px-3 py-1 rounded border text-[10px] transition-all ${
                     severityFilter === sev
                       ? sev === 'CRITICAL' 
-                        ? 'bg-[#FF2A4B] border-[#FF2A4B] text-white font-bold shadow-[0_0_10px_#FF2A4B]' 
-                        : 'bg-[#CBD5E1] border-[#CBD5E1] text-[#020716] font-bold shadow-[0_0_10px_rgba(203,213,225,0.6)]'
-                      : 'bg-[#020716] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'
+                        ? 'bg-[#FF1E2D] border-[#FF1E2D] text-white font-bold shadow-[0_0_10px_#FF1E2D]' 
+                        : 'bg-[#D9E1EA] border-[#D9E1EA] text-[#020B1A] font-bold shadow-[0_0_10px_rgba(217,225,234,0.6)]'
+                      : 'bg-[#020B1A] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'
                   }`}
                 >
                   {sev}
@@ -386,10 +383,10 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
           </div>
 
           {/* High-End Tactical Audit Table */}
-          <div className="rounded-lg border-2 border-[#184384] overflow-hidden bg-[#020716] shadow-xl">
+          <div className="rounded-lg border-2 border-[#17406E] overflow-hidden bg-[#020B1A] shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left font-mono text-xs">
-                <thead className="bg-[#030C22] border-b-2 border-[#184384] text-[#94A3B8] text-[10px] tracking-wider uppercase">
+                <thead className="bg-[#050B16] border-b-2 border-[#17406E] text-[#A7B4C4] text-[10px] tracking-wider uppercase">
                   <tr>
                     <th className="py-3 px-4">CVE / CWE CLASS</th>
                     <th className="py-3 px-4">VULNERABLE SINK FILE</th>
@@ -400,43 +397,43 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                     <th className="py-3 px-4 text-right">ACTION</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#184384]/40 text-[#CBD5E1]">
+                <tbody className="divide-y divide-[#17406E]/40 text-[#D9E1EA]">
                   {filteredInterventions.map((item, idx) => (
                     <tr 
                       key={item.id} 
                       onClick={() => setSelectedIntervention(idx)}
-                      className={`hover:bg-[#061533] cursor-pointer transition-colors ${
-                        selectedIntervention === idx ? 'bg-[#0B2556]/60' : ''
+                      className={`hover:bg-[#071A2E] cursor-pointer transition-colors ${
+                        selectedIntervention === idx ? 'bg-[#0B2A5E]/60' : ''
                       }`}
                     >
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-[#F8FAFC]">{item.class}</div>
-                        <div className="text-[10px] text-[#94A3B8]">{item.cve}</div>
+                        <div className="font-semibold text-[#EAF1F8]">{item.class}</div>
+                        <div className="text-[10px] text-[#A7B4C4]">{item.cve}</div>
                       </td>
                       <td className="py-3.5 px-4 font-mono">
-                        <span className="text-[#CBD5E1] font-medium">{item.file}</span>
-                        {item.line > 0 && <span className="text-[#FF2A4B] font-bold">:{item.line}</span>}
+                        <span className="text-[#D9E1EA] font-medium">{item.file}</span>
+                        {item.line > 0 && <span className="text-[#FF1E2D] font-bold">:{item.line}</span>}
                       </td>
                       <td className="py-3.5 px-4">
                         <span className={`px-2 py-0.5 text-[9px] font-bold rounded border ${
                           item.severity === 'CRITICAL'
-                            ? 'bg-[#991B1B]/40 text-[#FF2A4B] border-[#FF2A4B]/80 shadow-[0_0_8px_rgba(255,42,75,0.3)]'
+                            ? 'bg-[#A01D29]/40 text-[#FF1E2D] border-[#FF1E2D]/80 shadow-[0_0_8px_rgba(255,30,45,0.3)]'
                             : item.severity === 'HIGH'
-                            ? 'bg-[#0B2556] text-[#CBD5E1] border-[#CBD5E1]/60'
-                            : 'bg-[#081D45] text-[#94A3B8] border-[#184384]'
+                            ? 'bg-[#0B2A5E] text-[#D9E1EA] border-[#D9E1EA]/60'
+                            : 'bg-[#0B2A5E] text-[#A7B4C4] border-[#17406E]'
                         }`}>
                           {item.severity}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-[#E2E8F0]">
+                      <td className="py-3.5 px-4 text-[#DEE7F0]">
                         {item.decision}
                       </td>
-                      <td className="py-3.5 px-4 text-[#94A3B8]">
+                      <td className="py-3.5 px-4 text-[#A7B4C4]">
                         {item.time}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-[#061533] border border-[#CBD5E1]/30 text-[10px] text-[#E2E8F0] font-semibold">
-                          <CheckCircle className="w-3 h-3 text-[#FF2A4B]" />
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-[#071A2E] border border-[#D9E1EA]/30 text-[10px] text-[#DEE7F0] font-semibold">
+                          <CheckCircle className="w-3 h-3 text-[#FF1E2D]" />
                           <span>{item.status}</span>
                         </span>
                       </td>
@@ -446,7 +443,7 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                             e.stopPropagation();
                             onNavigate('patch');
                           }}
-                          className="px-3 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white border border-[#FF2A4B] text-[10px] font-bold rounded tracking-wider transition-all shadow-[0_0_10px_rgba(255,42,75,0.4)]"
+                          className="px-3 py-1 bg-[#E31424] hover:bg-[#C41724] text-white border border-[#FF1E2D] text-[10px] font-bold rounded tracking-wider transition-all shadow-[0_0_10px_rgba(255,30,45,0.4)]"
                         >
                           INSPECT DIFF
                         </button>

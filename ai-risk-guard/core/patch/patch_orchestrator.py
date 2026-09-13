@@ -1,5 +1,4 @@
-"""
-Transactional patch orchestration engine.
+"""Transactional patch orchestration engine.
 Applies patches safely with conflict detection.
 """
 
@@ -9,6 +8,19 @@ from typing import Any
 
 from core.patch.fixers import SUPPORTED_FIXER_TYPES
 from utils.logger import logger
+
+
+def _line_number(vuln: dict, default: int = 0) -> int:
+    """Coerce a vulnerability's ``line`` value to an int, tolerating bad data.
+
+    Downstream scanners may emit line as ``None`` or a non-numeric string; a
+    bare ``int(vuln.get("line", 0))`` would raise TypeError/ValueError and
+    abort the whole orchestrator before any patch is applied.
+    """
+    try:
+        return int(vuln.get("line", default))
+    except (TypeError, ValueError):
+        return default
 
 
 def apply_patches_safely(
@@ -30,13 +42,13 @@ def apply_patches_safely(
 
     ordered_vulnerabilities = sorted(
         vulnerabilities,
-        key=lambda v: int(v.get("line", 0)),
+        key=_line_number,
         reverse=True,
     )
 
     for vuln in ordered_vulnerabilities:
         vuln_type = vuln.get('type')
-        line = int(vuln.get("line", 0))
+        line = _line_number(vuln)
 
         if line in used_lines:
             logger.warning(f"Conflict detected for {vuln_type} at line {line}, skipping", "PATCH")

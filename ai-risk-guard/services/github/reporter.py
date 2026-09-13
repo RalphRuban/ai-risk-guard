@@ -4,6 +4,7 @@ Advanced GitHub PR security reporter with Code Scanning API support.
 
 import base64
 import collections
+import email.utils
 import gzip
 import json
 import os
@@ -64,10 +65,34 @@ _RETRY_KWARGS: dict[str, Any] = {
 }
 
 
+def _parse_retry_after(value: str) -> float:
+    """Parse a Retry-After header into a bounded delay in seconds.
+
+    Retry-After is either a delay in seconds ("30") or an absolute HTTP-date.
+    Asserting ``float()`` directly on it raises ValueError for date-formatted
+    headers, which would crash rate-limit retry handling. This parse falls back
+    to the HTTP-date form and defaults to 5.0s, bounding the result so a bogus
+    header can never stall retries indefinitely or spin them instantly.
+    """
+    raw = (value or "").strip()
+    try:
+        delay = float(raw)
+        return max(0.5, min(delay, 3600.0))
+    except (TypeError, ValueError):
+        pass
+    try:
+        parsed = email.utils.parsedate_to_datetime(raw)
+        delay = parsed.timestamp() - time.time()
+        return max(0.5, min(delay if delay > 0 else 5.0, 3600.0))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return 5.0
+
+
 def _raise_on_rate_limit(response):
     if response.status_code == 429:
         retry_after = response.headers.get("Retry-After", "5")
-        raise RateLimitError(retry_after=float(retry_after))
+        raise RateLimitError(retry_after=_parse_retry_after(retry_after))
     remaining = response.headers.get("X-RateLimit-Remaining")
     if remaining is not None and remaining.isdigit() and int(remaining) < 10:
         reset_ts = response.headers.get("X-RateLimit-Reset", "unknown")
@@ -1033,7 +1058,7 @@ def upload_sarif_to_code_scanning(repository, pr_number, access_token, sarif_out
         elif response.status_code == 429:
             retry_after = response.headers.get("Retry-After", "5")
             logger.warning(f"SARIF rate limited, retry after {retry_after}s", "GITHUB")
-            raise RateLimitError(retry_after=float(retry_after))
+            raise RateLimitError(retry_after=_parse_retry_after(retry_after))
         else:
             msg = f"SARIF upload error: {response.status_code} {response.text[:300]}"
             logger.error(msg, "GITHUB")

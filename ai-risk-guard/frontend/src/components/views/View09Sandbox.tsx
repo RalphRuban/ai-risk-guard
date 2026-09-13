@@ -3,7 +3,7 @@ import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId } from '../../types';
 import { getSandboxHealth, SandboxHealth } from '../../api/client';
-import { Box, Play, CheckCircle2, AlertTriangle, Terminal, Cpu, HardDrive, WifiOff, Clock } from 'lucide-react';
+import { Play, Cpu, HardDrive, WifiOff, Clock } from 'lucide-react';
 
 export const View09Sandbox: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
   const [validating, setValidating] = useState(false);
@@ -52,11 +52,11 @@ export const View09Sandbox: React.FC<{ onNavigate: (view: ViewId) => void }> = (
   };
 
   return (
-    <div className="py-8 px-4 sm:px-6 max-w-7xl mx-auto space-y-6">
+    <div className="py-8 px-4 sm:px-6 max-w-[1780px] mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#1E3C5C]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#17406E]">
         <div>
-          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00CFFF] tracking-widest mb-1">
+          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00A8FF] tracking-widest mb-1">
             <span>ISOLATED CONTAINER WORKSTATION // RUNTIME TEST</span>
           </div>
           <h1 className="font-headline font-bold text-2xl sm:text-3xl text-white">
@@ -87,40 +87,40 @@ export const View09Sandbox: React.FC<{ onNavigate: (view: ViewId) => void }> = (
 
       {/* Specifications Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 bg-[#06101F] border border-[#1E3C5C] space-y-1">
-          <div className="flex items-center space-x-2 font-mono text-xs text-[#8D9AAA]">
-            <Cpu className="w-4 h-4 text-[#00CFFF]" />
+        <div className="p-4 bg-[#050B16] border border-[#17406E] space-y-1">
+          <div className="flex items-center space-x-2 font-mono text-xs text-[#9AA7B8]">
+            <Cpu className="w-4 h-4 text-[#00A8FF]" />
             <span>RUNTIME MODE</span>
           </div>
           <div className="font-headline font-bold text-xl text-white">{health?.mode ? health.mode.toUpperCase() : '—'}</div>
-          <span className="font-mono text-[10px] text-[#8D9AAA]">{health?.docker_available ? 'Docker daemon detected' : 'Docker unavailable'}</span>
+          <span className="font-mono text-[10px] text-[#9AA7B8]">{health?.docker_available ? 'Docker daemon detected' : 'Docker unavailable'}</span>
         </div>
 
-        <div className="p-4 bg-[#06101F] border border-[#1E3C5C] space-y-1">
-          <div className="flex items-center space-x-2 font-mono text-xs text-[#8D9AAA]">
-            <HardDrive className="w-4 h-4 text-[#00CFFF]" />
+        <div className="p-4 bg-[#050B16] border border-[#17406E] space-y-1">
+          <div className="flex items-center space-x-2 font-mono text-xs text-[#9AA7B8]">
+            <HardDrive className="w-4 h-4 text-[#00A8FF]" />
             <span>IMAGE STATUS</span>
           </div>
           <div className="font-headline font-bold text-xl text-white">{health?.image_ready ? 'READY' : 'NOT BUILT'}</div>
-          <span className="font-mono text-[10px] text-[#8D9AAA]">Provisioned on first scan</span>
+          <span className="font-mono text-[10px] text-[#9AA7B8]">Provisioned on first scan</span>
         </div>
 
-        <div className="p-4 bg-[#06101F] border border-[#1E3C5C] space-y-1">
-          <div className="flex items-center space-x-2 font-mono text-xs text-[#FF304F]">
-            <WifiOff className="w-4 h-4 text-[#FF304F]" />
+        <div className="p-4 bg-[#050B16] border border-[#17406E] space-y-1">
+          <div className="flex items-center space-x-2 font-mono text-xs text-[#FF1E2D]">
+            <WifiOff className="w-4 h-4 text-[#FF1E2D]" />
             <span>NETWORK ACCESS</span>
           </div>
-          <div className="font-headline font-bold text-xl text-[#FF304F]">DISABLED</div>
-          <span className="font-mono text-[10px] text-[#8D9AAA]">--network=none airgap</span>
+          <div className="font-headline font-bold text-xl text-[#FF1E2D]">DISABLED</div>
+          <span className="font-mono text-[10px] text-[#9AA7B8]">--network=none airgap</span>
         </div>
 
-        <div className="p-4 bg-[#06101F] border border-[#1E3C5C] space-y-1">
+        <div className="p-4 bg-[#050B16] border border-[#17406E] space-y-1">
           <div className="flex items-center space-x-2 font-mono text-xs text-[#00E699]">
             <Clock className="w-4 h-4 text-[#00E699]" />
             <span>ISOLATION</span>
           </div>
           <div className="font-headline font-bold text-xl text-white">0.5 CPU</div>
-          <span className="font-mono text-[10px] text-[#8D9AAA]">--memory=128m --read-only</span>
+          <span className="font-mono text-[10px] text-[#9AA7B8]">--memory=128m --read-only</span>
         </div>
       </div>
 
@@ -131,7 +131,7 @@ export const View09Sandbox: React.FC<{ onNavigate: (view: ViewId) => void }> = (
         statusIndicator="ACTIVE"
         accentColor="#00E699"
       >
-        <div className="p-4 bg-[#02050B] border border-[#1E3C5C] font-mono text-xs space-y-2 text-[#D7DEE7] min-h-[260px]">
+        <div className="p-4 bg-[#020B1A] border border-[#17406E] font-mono text-xs space-y-2 text-[#D9E1EA] min-h-[260px]">
           {logs.map((log, i) => (
             <div
               key={i}
@@ -139,8 +139,8 @@ export const View09Sandbox: React.FC<{ onNavigate: (view: ViewId) => void }> = (
                 log.includes('STATUS: VALIDATED')
                   ? 'text-[#00E699] font-bold p-2 bg-[#00E699]/15 border border-[#00E699]'
                   : log.includes('SUCCESS') || log.includes('COMPLETED')
-                  ? 'text-[#65E7FF]'
-                  : 'text-[#8D9AAA]'
+                  ? 'text-[#5BC9FF]'
+                  : 'text-[#9AA7B8]'
               }
             >
               {log}

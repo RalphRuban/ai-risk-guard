@@ -2,26 +2,24 @@ import React, { useState } from 'react';
 import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId } from '../../types';
-import { GitCommit, Wrench, CheckCircle, ArrowRight, Play, Cpu, Shield } from 'lucide-react';
+import { Wrench, ArrowRight } from 'lucide-react';
 
 export const View08Patch: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
   const [generating, setGenerating] = useState(false);
-  const [patchGenerated, setPatchGenerated] = useState(true);
 
   const handleGenerate = () => {
     setGenerating(true);
     setTimeout(() => {
       setGenerating(false);
-      setPatchGenerated(true);
     }, 700);
   };
 
   return (
-    <div className="py-8 px-4 sm:px-6 max-w-7xl mx-auto space-y-6">
+    <div className="py-8 px-4 sm:px-6 max-w-[1780px] mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#1E3C5C]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#17406E]">
         <div>
-          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00CFFF] tracking-widest mb-1">
+          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00A8FF] tracking-widest mb-1">
             <span>CODE SYNTHESIS // AST TRANSFORMER</span>
           </div>
           <h1 className="font-headline font-bold text-2xl sm:text-3xl text-white">
@@ -43,7 +41,7 @@ export const View08Patch: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ 
           <CyberButton
             variant="secondary"
             size="md"
-            icon={<ArrowRight className="w-4 h-4 text-[#00CFFF]" />}
+            icon={<ArrowRight className="w-4 h-4 text-[#00A8FF]" />}
             onClick={() => onNavigate('sandbox')}
           >
             VALIDATE IN SANDBOX (VIEW 09)
@@ -58,17 +56,17 @@ export const View08Patch: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ 
           headerTitle="BEFORE: VULNERABLE CODE (ORIGINAL AST)"
           headerCode="CWE-78 SINK"
           statusIndicator="ALERT"
-          accentColor="#FF304F"
+          accentColor="#FF1E2D"
         >
-          <div className="font-mono text-xs bg-[#02050B] p-4 border border-[#1E3C5C] space-y-1 text-[#8D9AAA] min-h-[220px]">
-            <div className="text-[#8D9AAA]/50"># api/routes/executor.py - Line 40-44</div>
-            <div><span className="text-[#00CFFF]">import</span> os</div>
-            <div className="pt-2 text-[#00CFFF]">def <span className="text-white">run_backup</span>(target_path):</div>
-            <div className="pl-4 text-[#8D9AAA] text-[11px]"># Vulnerable shell invocation with string interpolation</div>
-            <div className="pl-4 p-2 bg-[#8F1424]/40 border-l-2 border-[#FF304F] text-[#FF304F] font-bold">
+          <div className="font-mono text-xs bg-[#020B1A] p-4 border border-[#17406E] space-y-1 text-[#9AA7B8] min-h-[220px]">
+            <div className="text-[#9AA7B8]/50"># api/routes/executor.py - Line 40-44</div>
+            <div><span className="text-[#00A8FF]">import</span> os</div>
+            <div className="pt-2 text-[#00A8FF]">def <span className="text-white">run_backup</span>(target_path):</div>
+            <div className="pl-4 text-[#9AA7B8] text-[11px]"># Vulnerable shell invocation with string interpolation</div>
+            <div className="pl-4 p-2 bg-[#7E1120]/40 border-l-2 border-[#FF1E2D] text-[#FF1E2D] font-bold">
               - os.system(f"tar -czf /tmp/backup.tar.gz &#123;target_path&#125;")
             </div>
-            <div className="pl-4 text-[#00CFFF]">return <span className="text-white">True</span></div>
+            <div className="pl-4 text-[#00A8FF]">return <span className="text-white">True</span></div>
           </div>
         </GlassPanel>
 
@@ -79,17 +77,17 @@ export const View08Patch: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ 
           statusIndicator="ACTIVE"
           accentColor="#00E699"
         >
-          <div className="font-mono text-xs bg-[#02050B] p-4 border border-[#1E3C5C] space-y-1 text-[#8D9AAA] min-h-[220px]">
-            <div className="text-[#8D9AAA]/50"># Hardened with subprocess.run & shlex quotation</div>
-            <div><span className="text-[#00CFFF]">import</span> subprocess, shlex</div>
-            <div className="pt-2 text-[#00CFFF]">def <span className="text-white">run_backup</span>(target_path):</div>
-            <div className="pl-4 text-[#8D9AAA] text-[11px]"># Sanitized argument array bypassing shell injection</div>
+          <div className="font-mono text-xs bg-[#020B1A] p-4 border border-[#17406E] space-y-1 text-[#9AA7B8] min-h-[220px]">
+            <div className="text-[#9AA7B8]/50"># Hardened with subprocess.run & shlex quotation</div>
+            <div><span className="text-[#00A8FF]">import</span> subprocess, shlex</div>
+            <div className="pt-2 text-[#00A8FF]">def <span className="text-white">run_backup</span>(target_path):</div>
+            <div className="pl-4 text-[#9AA7B8] text-[11px]"># Sanitized argument array bypassing shell injection</div>
             <div className="pl-4 p-2 bg-[#00E699]/20 border-l-2 border-[#00E699] text-[#00E699] font-bold">
               + safe_target = shlex.quote(target_path)<br />
               + cmd = ["tar", "-czf", "/tmp/backup.tar.gz", safe_target]<br />
               + subprocess.run(cmd, capture_output=True, check=True)
             </div>
-            <div className="pl-4 text-[#00CFFF]">return <span className="text-white">True</span></div>
+            <div className="pl-4 text-[#00A8FF]">return <span className="text-white">True</span></div>
           </div>
         </GlassPanel>
       </div>
@@ -100,25 +98,25 @@ export const View08Patch: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ 
         headerCode="SHA-256: 4a9e2d...01"
         statusIndicator="ACTIVE"
       >
-        <div className="font-mono text-xs bg-[#02050B] p-4 border border-[#1E3C5C] space-y-1 text-[#D7DEE7] overflow-x-auto">
-          <div className="text-[#8D9AAA]">diff --git a/api/routes/executor.py b/api/routes/executor.py</div>
-          <div className="text-[#8D9AAA]">index 920f1a..88c12e 100644</div>
-          <div className="text-[#00CFFF]">--- a/api/routes/executor.py</div>
-          <div className="text-[#00CFFF]">+++ b/api/routes/executor.py</div>
-          <div className="text-[#65E7FF]">@@ -1,5 +1,7 @@</div>
-          <div className="text-[#FF304F] bg-[#8F1424]/30 px-2 py-0.5">- import os</div>
+        <div className="font-mono text-xs bg-[#020B1A] p-4 border border-[#17406E] space-y-1 text-[#D9E1EA] overflow-x-auto">
+          <div className="text-[#9AA7B8]">diff --git a/api/routes/executor.py b/api/routes/executor.py</div>
+          <div className="text-[#9AA7B8]">index 920f1a..88c12e 100644</div>
+          <div className="text-[#00A8FF]">--- a/api/routes/executor.py</div>
+          <div className="text-[#00A8FF]">+++ b/api/routes/executor.py</div>
+          <div className="text-[#5BC9FF]">@@ -1,5 +1,7 @@</div>
+          <div className="text-[#FF1E2D] bg-[#7E1120]/30 px-2 py-0.5">- import os</div>
           <div className="text-[#00E699] bg-[#00E699]/15 px-2 py-0.5">+ import subprocess, shlex</div>
-          <div className="text-[#8D9AAA] px-2">  def run_backup(target_path):</div>
-          <div className="text-[#FF304F] bg-[#8F1424]/30 px-2 py-0.5">-     os.system(f"tar -czf /tmp/backup.tar.gz &#123;target_path&#125;")</div>
+          <div className="text-[#9AA7B8] px-2">  def run_backup(target_path):</div>
+          <div className="text-[#FF1E2D] bg-[#7E1120]/30 px-2 py-0.5">-     os.system(f"tar -czf /tmp/backup.tar.gz &#123;target_path&#125;")</div>
           <div className="text-[#00E699] bg-[#00E699]/15 px-2 py-0.5">+     safe_target = shlex.quote(target_path)</div>
           <div className="text-[#00E699] bg-[#00E699]/15 px-2 py-0.5">+     cmd = ["tar", "-czf", "/tmp/backup.tar.gz", safe_target]</div>
           <div className="text-[#00E699] bg-[#00E699]/15 px-2 py-0.5">+     subprocess.run(cmd, capture_output=True, check=True)</div>
-          <div className="text-[#8D9AAA] px-2">      return True</div>
+          <div className="text-[#9AA7B8] px-2">      return True</div>
         </div>
 
-        <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#1E3C5C]/60 font-mono text-xs text-[#8D9AAA]">
+        <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#17406E]/60 font-mono text-xs text-[#9AA7B8]">
           <div>
-            TRANSFORMATION ENGINE: <span className="text-[#00CFFF]">SubprocessTransformer (v2.4.0)</span>
+            TRANSFORMATION ENGINE: <span className="text-[#00A8FF]">SubprocessTransformer (v2.4.0)</span>
           </div>
           <CyberButton
             variant="primary"

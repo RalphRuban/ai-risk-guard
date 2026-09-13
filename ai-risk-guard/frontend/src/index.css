@@ -5,28 +5,28 @@
 @layer base {
   :root {
     /* 80% Navy Blue Core Atmosphere */
-    --bg-void: #020716;
-    --bg-dark: #030C22;
-    --bg-panel: #061533;
-    --navy-structure: #0B2556;
-    --navy-border: #184384;
-    --navy-electric: #1E64D4;
+    --bg-void: #020B1A;
+    --bg-dark: #050B16;
+    --bg-panel: #071A2E;
+    --navy-structure: #0B2A5E;
+    --navy-border: #17406E;
+    --navy-electric: #007BFF;
 
     /* 10% Threat / Cyber Red */
-    --threat-red: #FF2A4B;
-    --ruby-core: #DC2626;
-    --dark-red: #991B1B;
+    --threat-red: #FF1E2D;
+    --ruby-core: #E31424;
+    --dark-red: #A01D29;
 
     /* 10% Metallic Titanium / Silver */
-    --metal-white: #F8FAFC;
-    --metal-light: #E2E8F0;
-    --metal-silver: #CBD5E1;
-    --metal-muted: #94A3B8;
+    --metal-white: #EAF1F8;
+    --metal-light: #DEE7F0;
+    --metal-silver: #D9E1EA;
+    --metal-muted: #A7B4C4;
   }
 
   body {
-    background-color: #020716;
-    color: #E2E8F0;
+    background-color: #020B1A;
+    color: #DEE7F0;
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     overflow-x: hidden;
   }
@@ -37,25 +37,34 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #030C22;
+    background: #050B16;
   }
   ::-webkit-scrollbar-thumb {
-    background: #0B2556;
+    background: #0B2A5E;
     border-radius: 3px;
-    border: 1px solid #184384;
+    border: 1px solid #17406E;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #FF2A4B;
+    background: #FF1E2D;
   }
+}
+
+/* Hide scrollbar for horizontal overflow nav strips */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Tactical Glassmorphism & Borders (80% Navy, 10% Silver rim, 10% Red accents) */
 .tactical-panel {
-  background: rgba(6, 21, 51, 0.85);
+  background: rgba(7, 26, 46, 0.85);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(24, 67, 132, 0.55);
-  box-shadow: 0 12px 36px 0 rgba(2, 7, 22, 0.75);
+  border: 1px solid rgba(23, 64, 110, 0.55);
+  box-shadow: 0 12px 36px 0 rgba(2, 11, 26, 0.75);
 }
 
 .tactical-panel-interactive {
@@ -63,22 +72,22 @@
 }
 .tactical-panel-interactive:hover {
   transform: translateY(-3px);
-  border-color: rgba(255, 42, 75, 0.6);
-  box-shadow: 0 16px 40px 0 rgba(255, 42, 75, 0.2);
+  border-color: rgba(255, 30, 45, 0.6);
+  box-shadow: 0 16px 40px 0 rgba(255, 30, 45, 0.2);
 }
 
 /* Cyber Floating Glassmorphic Cards (80% Navy Blue body, 10% Silver reflection, 10% Red glow) */
 .cyber-glass {
-  background: linear-gradient(135deg, rgba(11, 37, 86, 0.7) 0%, rgba(3, 12, 34, 0.92) 100%);
+  background: linear-gradient(135deg, rgba(11, 42, 94, 0.7) 0%, rgba(5, 11, 22, 0.92) 100%);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(203, 213, 225, 0.22);
-  box-shadow: 0 16px 40px -10px rgba(2, 7, 22, 0.85), 0 0 20px rgba(255, 42, 75, 0.08);
+  border: 1px solid rgba(217, 225, 234, 0.22);
+  box-shadow: 0 16px 40px -10px rgba(2, 11, 26, 0.85), 0 0 20px rgba(255, 30, 45, 0.08);
 }
 
 .cyber-glass:hover {
-  border-color: rgba(255, 42, 75, 0.55);
-  box-shadow: 0 20px 50px -10px rgba(2, 7, 22, 0.9), 0 0 30px rgba(255, 42, 75, 0.3);
+  border-color: rgba(255, 30, 45, 0.55);
+  box-shadow: 0 20px 50px -10px rgba(2, 11, 26, 0.9), 0 0 30px rgba(255, 30, 45, 0.3);
 }
 
 /* Hanging Tether Assembly: 10% Red Laser Cable + 10% Silver Alloy Pin */
@@ -87,8 +96,8 @@
   top: -20px;
   width: 2px;
   height: 20px;
-  background: linear-gradient(to bottom, rgba(255, 42, 75, 0.9), rgba(255, 42, 75, 0.25));
-  box-shadow: 0 0 8px rgba(255, 42, 75, 0.75);
+  background: linear-gradient(to bottom, rgba(255, 30, 45, 0.9), rgba(255, 30, 45, 0.25));
+  box-shadow: 0 0 8px rgba(255, 30, 45, 0.75);
 }
 
 .hanging-pin {
@@ -97,8 +106,8 @@
   width: 8px;
   height: 8px;
   border-radius: 9999px;
-  background: #CBD5E1;
-  box-shadow: 0 0 8px #E2E8F0, 0 0 12px rgba(255, 42, 75, 0.6);
+  background: #D9E1EA;
+  box-shadow: 0 0 8px #DEE7F0, 0 0 12px rgba(255, 30, 45, 0.6);
   transform: translateX(-3px);
 }
 
@@ -106,18 +115,18 @@
 .bg-technical-grid {
   background-size: 40px 40px;
   background-image: 
-    linear-gradient(to right, rgba(24, 67, 132, 0.22) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(24, 67, 132, 0.22) 1px, transparent 1px);
+    linear-gradient(to right, rgba(23, 64, 110, 0.22) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(23, 64, 110, 0.22) 1px, transparent 1px);
 }
 
 .bg-radial-vignette {
-  background: radial-gradient(circle at 50% 50%, rgba(30, 100, 212, 0.12) 0%, rgba(2, 7, 22, 0.98) 85%);
+  background: radial-gradient(circle at 50% 50%, rgba(0, 123, 255, 0.12) 0%, rgba(2, 11, 26, 0.98) 85%);
 }
 
 /* Subtle Scanline Overlay */
 .scanline-overlay {
   background: linear-gradient(
-    rgba(18, 16, 16, 0) 50%, 
+    rgba(5, 11, 22, 0) 50%, 
     rgba(0, 0, 0, 0.25) 50%
   );
   background-size: 100% 4px;
@@ -139,40 +148,133 @@
   animation: energyFlow 2.5s linear infinite;
 }
 
+/* ================= CINEMATIC INTRO ================= */
+/* Cyber scanner: vertical beam sweeps the frame once */
+@keyframes introScannerSweep {
+  0% { top: -12%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 112%; opacity: 0; }
+}
+.intro-scanner-beam {
+  animation: introScannerSweep 1.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Radar sweep disc */
+@keyframes introRadar {
+  to { transform: rotate(360deg); }
+}
+.intro-radar {
+  animation: introRadar 2.4s linear infinite;
+}
+
+@keyframes introRadarPing {
+  0% { transform: scale(0.3); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 0; }
+}
+.intro-radar-ping {
+  animation: introRadarPing 2.4s ease-out infinite;
+}
+
+/* AUREX letters reveal one-by-one */
+@keyframes introLetterIn {
+  0% { opacity: 0; transform: translateY(26px) scale(1.6); filter: blur(8px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+.intro-letter {
+  opacity: 0;
+  animation: introLetterIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Logo pop-in right after the letters */
+@keyframes introLogoPop {
+  0% { opacity: 0; transform: scale(0.5) translateY(16px); filter: blur(10px) brightness(0.4); }
+  55% { opacity: 1; transform: scale(1.08) translateY(0); filter: blur(0) brightness(1.55); }
+  100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0) brightness(1); }
+}
+.intro-logo-pop {
+  animation: introLogoPop 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes introSubReveal {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.intro-sub-reveal {
+  animation: introSubReveal 0.9s ease-out 0.55s forwards;
+}
+
+@keyframes introParticleFloat {
+  0% { transform: translate(0, 0); opacity: 0; }
+  15% { opacity: 0.9; }
+  85% { opacity: 0.7; }
+  100% { transform: translate(var(--drift-x), var(--drift-y)); opacity: 0; }
+}
+.intro-particle {
+  animation: introParticleFloat var(--dur) ease-in-out infinite;
+  animation-delay: var(--delay);
+}
+
+@keyframes introProgress {
+  0% { width: 0%; opacity: 0.4; }
+  30% { width: 42%; opacity: 1; }
+  70% { width: 78%; opacity: 1; }
+  100% { width: 100%; opacity: 1; }
+}
+.intro-progress {
+  animation: introProgress 2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes introFadeOut {
+  to { opacity: 0; transform: scale(1.06); filter: blur(6px); }
+}
+.intro-fade-out {
+  animation: introFadeOut 0.55s ease-in forwards;
+}
+
+@keyframes introCornerPulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.intro-corner {
+  animation: introCornerPulse 1.8s ease-in-out infinite;
+}
+
 /* Rugged Industrial Aerospace HUD Frame Styling */
 .rugged-border {
-  border: 2px solid #184384;
+  border: 2px solid #17406E;
   box-shadow: 
-    0 0 0 1px rgba(203, 213, 225, 0.2),
-    0 20px 60px -10px rgba(2, 7, 22, 0.95),
-    inset 0 1px 0 rgba(203, 213, 225, 0.25);
+    0 0 0 1px rgba(217, 225, 234, 0.2),
+    0 20px 60px -10px rgba(2, 11, 26, 0.95),
+    inset 0 1px 0 rgba(217, 225, 234, 0.25);
 }
 
 .rugged-border-red {
-  border: 2px solid rgba(255, 42, 75, 0.6);
+  border: 2px solid rgba(255, 30, 45, 0.6);
   box-shadow: 
-    0 0 0 1px rgba(255, 42, 75, 0.2),
-    0 20px 60px -10px rgba(2, 7, 22, 0.95),
-    0 0 25px rgba(255, 42, 75, 0.15);
+    0 0 0 1px rgba(255, 30, 45, 0.2),
+    0 20px 60px -10px rgba(2, 11, 26, 0.95),
+    0 0 25px rgba(255, 30, 45, 0.15);
 }
 
 .hazard-stripes {
   background-image: repeating-linear-gradient(
     -45deg,
-    rgba(24, 67, 132, 0.3),
-    rgba(24, 67, 132, 0.3) 10px,
-    rgba(11, 37, 86, 0.1) 10px,
-    rgba(11, 37, 86, 0.1) 20px
+    rgba(23, 64, 110, 0.3),
+    rgba(23, 64, 110, 0.3) 10px,
+    rgba(11, 42, 94, 0.1) 10px,
+    rgba(11, 42, 94, 0.1) 20px
   );
 }
 
 .hazard-stripes-red {
   background-image: repeating-linear-gradient(
     -45deg,
-    rgba(255, 42, 75, 0.25),
-    rgba(255, 42, 75, 0.25) 10px,
-    rgba(153, 27, 27, 0.1) 10px,
-    rgba(153, 27, 27, 0.1) 20px
+    rgba(255, 30, 45, 0.25),
+    rgba(255, 30, 45, 0.25) 10px,
+    rgba(160, 29, 41, 0.1) 10px,
+    rgba(160, 29, 41, 0.1) 20px
   );
 }
 

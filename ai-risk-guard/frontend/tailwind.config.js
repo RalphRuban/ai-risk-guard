@@ -10,41 +10,43 @@ export default {
       colors: {
         cyber: {
           // 80% Navy Blue Hierarchy (Void, Structure, Panels, Accents)
-          navyVoid: '#020716',
-          navyDark: '#030C22',
-          navyPanel: '#061533',
-          navyDeep: '#081D45',
-          navyStructure: '#0B2556',
-          navyBorder: '#184384',
-          navyLight: '#245FB0',
-          navyElectric: '#1E64D4',
+          navyVoid: '#020B1A',
+          navyDark: '#050B16',
+          navyPanel: '#071A2E',
+          navyDeep: '#0B2A5E',
+          navyStructure: '#0B2A5E',
+          navyBorder: '#17406E',
+          navyLight: '#0B5ED7',
+          navyElectric: '#007BFF',
           
           // 10% Red (Tactical Cyber Threat, Alarms, Energy Lasers)
-          threatRed: '#FF2A4B',
-          rubyCore: '#DC2626',
-          darkRed: '#991B1B',
+          threatRed: '#FF1E2D',
+          rubyCore: '#E31424',
+          darkRed: '#A01D29',
           crimsonAlert: '#E11D48',
-          dimRed: '#540D17',
+          dimRed: '#5A0E16',
 
           // 10% Silver (Aerospace Titanium, Chrome Highlights, Metallic Typography)
-          metalWhite: '#F8FAFC',
-          metalLight: '#E2E8F0',
-          metalSilver: '#CBD5E1',
-          metalMuted: '#94A3B8',
-          metalDark: '#64748B',
+          metalWhite: '#EAF1F8',
+          metalSheen: '#F0F5FA',
+          metalLight: '#DEE7F0',
+          metalSilver: '#D9E1EA',
+          metalSteel: '#C2CDD9',
+          metalMuted: '#A7B4C4',
+          metalDark: '#76879D',
 
           // Compatibility keys
-          bgVoid: '#020716',
-          bgDark: '#030C22',
-          bgPanel: '#061533',
-          structureDark: '#081D45',
-          structureBase: '#0B2556',
-          gunmetal: '#0E2F6B',
-          steel: '#184384',
-          electricBlue: '#1E64D4',
+          bgVoid: '#020B1A',
+          bgDark: '#050B16',
+          bgPanel: '#071A2E',
+          structureDark: '#0B2A5E',
+          structureBase: '#0B2A5E',
+          gunmetal: '#1248A8',
+          steel: '#17406E',
+          electricBlue: '#007BFF',
           cyberBlue: '#1248A8',
-          energyCyan: '#FF2A4B', // routed to Threat Red
-          iceBlue: '#CBD5E1',    // routed to Silver
+          energyCyan: '#FF1E2D', // routed to Threat Red
+          iceBlue: '#D9E1EA',    // routed to Silver
           successGreen: '#00E699'
         }
       },
@@ -56,13 +58,15 @@ export default {
         sans: ['"Plus Jakarta Sans"', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif']
       },
       boxShadow: {
-        'red-glow': '0 0 25px rgba(255, 42, 75, 0.35)',
-        'threat-glow': '0 0 30px rgba(255, 42, 75, 0.45)',
-        'silver-glow': '0 0 20px rgba(203, 213, 225, 0.25)',
-        'navy-glow': '0 0 30px rgba(30, 100, 212, 0.25)',
-        'tactical-inset': 'inset 0 1px 0 rgba(226, 232, 240, 0.15), inset 0 0 20px rgba(2, 7, 22, 0.7)',
-        'glass-card': '0 16px 40px -10px rgba(2, 7, 22, 0.8), 0 0 1px 1px rgba(203, 213, 225, 0.2)',
-        'glass-floating': '0 20px 50px -10px rgba(2, 7, 22, 0.85), 0 0 30px 1px rgba(255, 42, 75, 0.18)'
+        'red-glow': '0 0 25px rgba(255, 30, 45, 0.35)',
+        'threat-glow': '0 0 30px rgba(255, 30, 45, 0.45)',
+        'silver-glow': '0 0 20px rgba(217, 225, 234, 0.25)',
+        'silver-glow-strong': '0 0 25px rgba(217, 225, 234, 0.4)',
+        'silver-rim': 'inset 0 1px 0 rgba(217, 225, 234, 0.3)',
+        'navy-glow': '0 0 30px rgba(0, 123, 255, 0.25)',
+        'tactical-inset': 'inset 0 1px 0 rgba(222, 231, 240, 0.15), inset 0 0 20px rgba(2, 11, 26, 0.7)',
+        'glass-card': '0 16px 40px -10px rgba(2, 11, 26, 0.8), 0 0 1px 1px rgba(217, 225, 234, 0.2)',
+        'glass-floating': '0 20px 50px -10px rgba(2, 11, 26, 0.85), 0 0 30px 1px rgba(255, 30, 45, 0.18)'
       },
       keyframes: {
         'pulse-subtle': {

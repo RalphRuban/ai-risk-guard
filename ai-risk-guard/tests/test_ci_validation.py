@@ -336,23 +336,45 @@ class TestCiValidationEndpoints:
         )
         return jid
 
+    def _job_headers(self, jid=None, extra=None):
+        headers = {"X-CI-Validation-Secret": "s3cret", "Host": "arg.example"}
+        if jid is not None:
+            row = get_pending_validation(jid)
+            if row and row.get("validation_token"):
+                headers["X-CI-Validation-Token"] = row["validation_token"]
+        if extra:
+            headers.update(extra)
+        return headers
+
     def test_get_job_requires_secret(self, monkeypatch):
         jid = self._seed_job(monkeypatch)
         assert self.client.get(f"/api/ci-validation/jobs/{jid}").status_code == 401
         bad = {"X-CI-Validation-Secret": "wrong"}
         assert self.client.get(f"/api/ci-validation/jobs/{jid}", headers=bad).status_code == 401
-        good = {"X-CI-Validation-Secret": "s3cret"}
+        good = self._job_headers(jid)
         resp = self.client.get(f"/api/ci-validation/jobs/{jid}", headers=good)
         assert resp.status_code == 200
         body = resp.get_json()
         assert body["patched_code"] == SAFE_CODE
         assert body["scan_mode"] == "docker_only"
         assert body["test_content"].startswith("def test_add")
+        assert body["validation_token"] == get_pending_validation(jid)["validation_token"]
 
     def test_get_job_unknown(self, monkeypatch):
         _enable_ci(monkeypatch)
-        good = {"X-CI-Validation-Secret": "s3cret"}
+        good = self._job_headers()
         assert self.client.get("/api/ci-validation/jobs/9999", headers=good).status_code == 404
+
+    def test_post_results_requires_job_token(self, monkeypatch):
+        jid = self._seed_job(monkeypatch)
+        secret_only = {"X-CI-Validation-Secret": "s3cret", "Host": "arg.example"}
+        resp = self.client.post(
+            "/api/ci-validation/results",
+            json={"job_id": jid, "status": "completed"},
+            headers=secret_only,
+        )
+        assert resp.status_code == 401
+        assert count_ci_results_available("alice/app", "abc123") == 0
 
     def test_post_results_stores_and_triggers_revalidation(self, monkeypatch):
         jid = self._seed_job(monkeypatch)
@@ -362,13 +384,14 @@ class TestCiValidationEndpoints:
             resp = self.client.post(
                 "/api/ci-validation/results",
                 json={"job_id": jid, "status": "completed", "sandbox_res": CI_SANDBOX, "test_results": CI_TESTS},
-                headers={"X-CI-Validation-Secret": "s3cret"},
+                headers=self._job_headers(jid),
             )
         assert resp.status_code == 200
         assert count_ci_results_available("alice/app", "abc123") == 1
         assert mock_reval.call_count == 1
         called = mock_reval.call_args[0][0]
         assert called["id"] == scan_id
+        assert get_pending_validation(jid)["validation_token"] == ""
 
     def test_post_results_requires_secret(self, monkeypatch):
         jid = self._seed_job(monkeypatch)
@@ -379,13 +402,23 @@ class TestCiValidationEndpoints:
 
     def test_post_results_unknown_and_missing_job(self, monkeypatch):
         _enable_ci(monkeypatch)
-        good = {"X-CI-Validation-Secret": "s3cret"}
+        good = self._job_headers()
         resp = self.client.post("/api/ci-validation/results", json={}, headers=good)
         assert resp.status_code == 400
         resp = self.client.post(
             "/api/ci-validation/results", json={"job_id": 9999}, headers=good
         )
         assert resp.status_code == 404
+
+    def test_post_results_rejects_bad_status(self, monkeypatch):
+        jid = self._seed_job(monkeypatch)
+        resp = self.client.post(
+            "/api/ci-validation/results",
+            json={"job_id": jid, "status": "definitely-not-real"},
+            headers=self._job_headers(jid),
+        )
+        assert resp.status_code == 400
+        assert get_pending_validation(jid)["status"] == "pending"
 
 
 class TestCiDispatch:
@@ -451,3 +484,44 @@ class TestHarness:
         assert _parse_job_ids("4,5") == [4, 5]
         assert _parse_job_ids("") == []
         assert _parse_job_ids("7") == [7]
+
+    def test_report_echoes_per_job_token(self, monkeypatch, tmp_path):
+        """report() must authenticate with the per-job bearer from the payload.
+
+        Every captured job carries a fresh validation_token (utils/db.py). The
+        results endpoint rejects reports missing X-CI-Validation-Token, so the
+        harness must echo it back or the CI-runner fallback silently records
+        nothing.
+        """
+        import json as _json
+
+        import ci.validate as harness
+        monkeypatch.setattr(harness, "WORK_DIR", Path(tmp_path))
+        job_dir = Path(tmp_path) / "job-7"
+        job_dir.mkdir()
+        (job_dir / "payload.json").write_text(
+            _json.dumps({"validation_token": "tok_abc123"}), encoding="utf-8"
+        )
+        (job_dir / "result.json").write_text(
+            _json.dumps({"error": None, "sandbox": {"success": True}, "test_results": {}}),
+            encoding="utf-8",
+        )
+        sent = {}
+
+        def fake_post(url, json=None, headers=None, timeout=60):
+            sent["url"] = url
+            sent["headers"] = headers
+            sent["json"] = json
+
+            class _Response:
+                status_code = 200
+
+            return _Response()
+
+        monkeypatch.setattr(harness.requests, "post", fake_post)
+        assert harness.report("https://arg.example", "s3cret", [7]) == 1
+        assert sent["url"].endswith("/api/ci-validation/results")
+        assert sent["headers"]["X-CI-Validation-Secret"] == "s3cret"
+        assert sent["headers"]["X-CI-Validation-Token"] == "tok_abc123"
+        assert sent["json"]["job_id"] == 7
+        assert sent["json"]["status"] == "completed"

@@ -1,4 +1,6 @@
 import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ShieldCADState } from '../../types';
 
 interface TacticalShield3DProps {
@@ -10,9 +12,7 @@ interface TacticalShield3DProps {
 }
 
 export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
-  scrollProgress,
   cadState,
-  onCADChange,
   className = ''
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -26,9 +26,6 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
     edgeMesh?: any;
     circuitMesh?: any;
     particleSystem?: any;
-    coreMesh?: any;
-    coreGlowSprite?: any;
-    pointLight?: any;
     animId?: number;
     clock?: any;
   }>({});
@@ -36,12 +33,6 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    const THREE = (window as any).THREE;
-    if (!THREE) {
-      console.warn('Three.js not found on window.');
-      return;
-    }
 
     const width = container.clientWidth || 540;
     const height = container.clientHeight || 540;
@@ -64,8 +55,8 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
 
     // 3. OrbitControls
     let controls: any = null;
-    if (THREE.OrbitControls) {
-      controls = new THREE.OrbitControls(camera, renderer.domElement);
+    if (OrbitControls) {
+      controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.06;
       controls.enableZoom = false;
@@ -75,22 +66,22 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
       controls.maxPolarAngle = Math.PI / 2;
     }
 
-    // 4. Lighting Rig (80% Navy Blue, 10% Red, 10% Silver)
-    scene.add(new THREE.AmbientLight(0x071B3E, 3.8));
+    // 4. Lighting Rig (ICE & INDUSTRIAL — cyan/ice blue)
+    scene.add(new THREE.AmbientLight(0x081628, 3.8));
 
-    const keyLight = new THREE.DirectionalLight(0xE2E8F0, 4.2);
+    const keyLight = new THREE.DirectionalLight(0x00D9FF, 4.5);
     keyLight.position.set(4, 4, 5);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x0E2F68, 4.5);
+    const fillLight = new THREE.DirectionalLight(0x1677FF, 3.5);
     fillLight.position.set(-4, -2, 4);
     scene.add(fillLight);
 
-    const backLight = new THREE.DirectionalLight(0xCBD5E1, 3.5);
+    const backLight = new THREE.DirectionalLight(0x8BDFFF, 4.0);
     backLight.position.set(0, 0, -5);
     scene.add(backLight);
 
-    const pointLight = new THREE.PointLight(0xFF2A4B, 6.0, 14);
+    const pointLight = new THREE.PointLight(0x00D9FF, 5.5, 12);
     pointLight.position.set(0, 0, 2.2);
     scene.add(pointLight);
 
@@ -172,21 +163,21 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
     }
 
     const scaleGroup = new THREE.Group();
-    scaleGroup.scale.set(1.85, 1.85, 1.85);
+    scaleGroup.scale.set(1.45, 1.45, 1.45);
 
-    // 1. Navy Blue 80% Convex Armor Shell Material
+    // 1. Navy Gunmetal & Cold Blue Convex Shell
     const shieldGeom = createFacetedShieldGeometry();
     const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x071D45,
-      emissive: 0x030F28,
+      color: 0x001B3A,
+      emissive: 0x001845,
       emissiveIntensity: 0.95,
-      metalness: 0.55,
-      roughness: 0.15,
-      transmission: 0.68,
+      metalness: 0.40,
+      roughness: 0.12,
+      transmission: 0.72,
       thickness: 1.8,
       ior: 1.55,
       transparent: true,
-      opacity: 0.96,
+      opacity: 0.94,
       clearcoat: 1.0,
       clearcoatRoughness: 0.05,
       side: THREE.DoubleSide
@@ -194,13 +185,13 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
     const mainMesh = new THREE.Mesh(shieldGeom, glassMat);
     scaleGroup.add(mainMesh);
 
-    // 2. Beveled Titanium Silver Edges (10% Silver)
+    // 2. Beveled Frost Edges
     const edgeGeom = new THREE.EdgesGeometry(shieldGeom, 14);
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0xCBD5E1, transparent: true, opacity: 0.95 });
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x8BDFFF, transparent: true, opacity: 0.95 });
     const edgeMesh = new THREE.LineSegments(edgeGeom, edgeMat);
     scaleGroup.add(edgeMesh);
 
-    // 3. Tactical Circuits (10% Threat Red & Silver)
+    // 3. Circuits & Radial Nodes
     const circuitPositions: number[] = [];
     const angles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, (5 * Math.PI) / 4, (3 * Math.PI) / 2, (7 * Math.PI) / 4];
     angles.forEach((ang) => {
@@ -218,11 +209,11 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
     circuitGeo.setAttribute('position', new THREE.Float32BufferAttribute(circuitPositions, 3));
     const circuitMesh = new THREE.LineSegments(
       circuitGeo,
-      new THREE.LineBasicMaterial({ color: 0xFF2A4B, transparent: true, opacity: 0.85 })
+      new THREE.LineBasicMaterial({ color: 0x00D9FF, transparent: true, opacity: 0.85 })
     );
     scaleGroup.add(circuitMesh);
 
-    // 4. Orbit Particle Nodes (10% Silver Metallic Dust)
+    // 4. Orbit Particle Nodes
     const nodePos: number[] = [];
     for (let i = 0; i < 180; i++) {
       const ang = (i / 180) * Math.PI * 2 * 3.5;
@@ -238,7 +229,7 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
     const particleSystem = new THREE.Points(
       nodeGeo,
       new THREE.PointsMaterial({
-        color: 0xE2E8F0,
+        color: 0xC5F0FF,
         size: 0.024,
         transparent: true,
         opacity: 0.95,
@@ -247,33 +238,6 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
       })
     );
     scaleGroup.add(particleSystem);
-
-    // 5. Central Ruby Iris Core (10% Threat Red)
-    const coreGeo = new THREE.SphereGeometry(0.08, 24, 24);
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xFF2A4B });
-    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
-    coreMesh.position.set(0, 0.05, 0.25);
-    scaleGroup.add(coreMesh);
-
-    // 6. Threat Red Glow Sprite
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-      grad.addColorStop(0, 'rgba(255, 42, 75, 1.0)');
-      grad.addColorStop(0.35, 'rgba(220, 38, 38, 0.7)');
-      grad.addColorStop(1, 'rgba(11, 37, 86, 0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 128, 128);
-    }
-    const glowTex = new THREE.CanvasTexture(canvas);
-    const coreGlowSprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
-    );
-    coreGlowSprite.scale.set(1.3, 1.3, 1);
-    coreGlowSprite.position.set(0, 0.05, 0.26);
-    scaleGroup.add(coreGlowSprite);
 
     shieldMasterGroup.add(scaleGroup);
 
@@ -290,7 +254,7 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
 
     const maxDim = Math.max(size.x, size.y, size.z);
     const fov = camera.fov * (Math.PI / 180);
-    const cameraDist = ((maxDim / 2) / Math.tan(fov / 2)) * 0.95;
+    const cameraDist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.30;
 
     camera.position.set(0, 0, cameraDist);
     camera.near = 0.01;
@@ -311,8 +275,6 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
 
       if (controls) controls.update();
       if (shieldMasterGroup) shieldMasterGroup.position.y = Math.sin(t * 1.8) * 0.04;
-      if (coreMesh) coreMesh.scale.setScalar(1 + Math.sin(t * 2.8) * 0.12);
-      if (coreGlowSprite) coreGlowSprite.scale.setScalar(1.3 + Math.sin(t * 2.8) * 0.15);
       if (particleSystem) particleSystem.rotation.z = t * 0.02;
       if (pointLight) pointLight.intensity = 5.2 + Math.sin(t * 3.0) * 0.5;
 
@@ -342,9 +304,6 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
       edgeMesh,
       circuitMesh,
       particleSystem,
-      coreMesh,
-      coreGlowSprite,
-      pointLight,
       clock
     };
 
@@ -353,6 +312,24 @@ export const TacticalShield3D: React.FC<TacticalShield3DProps> = ({
         cancelAnimationFrame(threeStateRef.current.animId);
       }
       window.removeEventListener('resize', handleResize);
+
+      const st = threeStateRef.current;
+      if (st.controls) {
+        st.controls.dispose();
+      }
+      if (st.mainMesh) {
+        st.mainMesh.geometry.dispose();
+        (st.mainMesh as any).material?.dispose();
+      }
+      if (st.edgeMesh) {
+        st.edgeMesh.geometry.dispose();
+        (st.edgeMesh as any).material?.dispose();
+      }
+      if (st.circuitMesh) {
+        st.circuitMesh.geometry.dispose();
+        (st.circuitMesh as any).material?.dispose();
+      }
+
       renderer.dispose();
       while (container.firstChild) {
         container.removeChild(container.firstChild);

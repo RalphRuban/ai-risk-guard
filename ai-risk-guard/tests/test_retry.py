@@ -5,7 +5,7 @@ Tests for exponential backoff retry decorator.
 import time
 from unittest.mock import MagicMock, patch
 
-from utils.retry import RateLimitError, retry
+from utils.retry import RETRY_ALL, RateLimitError, retry
 
 
 class TestRateLimitError:
@@ -34,7 +34,7 @@ class TestRetryDecorator:
 
     def test_success_on_retry(self):
         func = MagicMock(side_effect=[ValueError("fail"), 42])
-        decorated = retry(max_attempts=3)(func)
+        decorated = retry(max_attempts=3, retryable_exceptions=(ValueError,))(func)
         with patch.object(time, "sleep") as mock_sleep:
             result = decorated()
         assert result == 42
@@ -43,7 +43,7 @@ class TestRetryDecorator:
 
     def test_fails_after_max_attempts(self):
         func = MagicMock(side_effect=ValueError("always fail"))
-        decorated = retry(max_attempts=3)(func)
+        decorated = retry(max_attempts=3, retryable_exceptions=(ValueError,))(func)
         with patch.object(time, "sleep"):
             import pytest
             with pytest.raises(ValueError, match="always fail"):
@@ -110,7 +110,7 @@ class TestRetryDecorator:
     def test_on_retry_callback(self):
         callback = MagicMock()
         func = MagicMock(side_effect=[ValueError("fail"), 42])
-        decorated = retry(max_attempts=3, on_retry=callback)(func)
+        decorated = retry(max_attempts=3, retryable_exceptions=(ValueError,), on_retry=callback)(func)
         with patch.object(time, "sleep"):
             result = decorated()
         assert result == 42
@@ -133,7 +133,7 @@ class TestRetryDecorator:
             call_count += 1
             raise ValueError("fail")
 
-        decorated = retry(max_attempts=4, base_delay=1.0, backoff=2.0, jitter=False, on_retry=record_delay)(flaky)
+        decorated = retry(max_attempts=4, base_delay=1.0, backoff=2.0, jitter=False, retryable_exceptions=(ValueError,), on_retry=record_delay)(flaky)
         with patch.object(time, "sleep"):
             import pytest
             with pytest.raises(ValueError):
@@ -156,7 +156,7 @@ class TestRetryDecorator:
             call_count += 1
             raise ValueError("fail")
 
-        decorated = retry(max_attempts=5, base_delay=1.0, backoff=4.0, max_delay=10.0, jitter=False, on_retry=record_delay)(flaky)
+        decorated = retry(max_attempts=5, base_delay=1.0, backoff=4.0, max_delay=10.0, jitter=False, retryable_exceptions=(ValueError,), on_retry=record_delay)(flaky)
         with patch.object(time, "sleep"):
             import pytest
             with pytest.raises(ValueError):
@@ -175,5 +175,29 @@ class TestRetryDecorator:
         decorated = retry(max_attempts=3)(func)
         with patch.object(time, "sleep"):
             result = decorated(1, 2, key="value")
+        assert result == 42
         func.assert_called_once_with(1, 2, key="value")
+
+    def test_default_filter_does_not_retry_generic_errors(self):
+        """A generic exception must not be retried with the default filter —
+        only self-describing rate-limit failures are transient by default.  An
+        uncaught ValueError here would otherwise mask a programming error by
+        silently hammering the call multiple times."""
+        func = MagicMock(side_effect=ValueError("programming bug"))
+        decorated = retry(max_attempts=3)(func)
+        with patch.object(time, "sleep"):
+            import pytest
+            with pytest.raises(ValueError, match="programming bug"):
+                decorated()
+        func.assert_called_once()
+
+    def test_retry_all_sentinel_retries_every_exception(self):
+        """Opting into ``RETRY_ALL`` must retry *every* exception — the
+        explicit alternative to the conservative default filter."""
+        func = MagicMock(side_effect=[ValueError("first"), 42])
+        decorated = retry(max_attempts=3, retryable_exceptions=RETRY_ALL)(func)
+        with patch.object(time, "sleep"):
+            result = decorated()
+        assert result == 42
+        assert func.call_count == 2
         assert result == 42

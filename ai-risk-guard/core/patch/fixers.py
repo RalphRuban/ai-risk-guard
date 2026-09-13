@@ -1367,10 +1367,13 @@ def apply_patch_to_content(
                 "ast_success": False,
             }
 
-        # Merge imports from __import__() replacement with vulnerability-specific ones
-        all_required = list(required_imports)
-        for mod in import_remover.modules_to_import:
-            if mod not in all_required:
+        # Merge imports from __import__() replacement with vulnerability-specific ones.
+        # Never re-introduce a module the policy forbade: ModuleRemover strips
+        # forbidden imports above, and ImportCallRemover's collected modules must
+        # not be injected back in by inject_imports() (which would undo the strip).
+        all_required = []
+        for mod in list(required_imports) + list(import_remover.modules_to_import):
+            if mod not in all_required and mod not in forbidden:
                 all_required.append(mod)
 
         # Helper block needed by certain fixers (kept for the unparse fallback).

@@ -16,7 +16,8 @@ export type ViewId =
   | 'report-detail'
   | 'github'
   | 'settings'
-  | 'status';
+  | 'status'
+  | 'profile';
 
 export interface ViewMeta {
   id: ViewId;

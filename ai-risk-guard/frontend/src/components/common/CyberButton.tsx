@@ -30,11 +30,11 @@ export const CyberButton: React.FC<CyberButtonProps> = ({
   };
 
   const variantStyles = {
-    primary: "bg-[#DC2626] hover:bg-[#B91C1C] text-white border-[#FF2A4B]/80 hover:border-[#FF2A4B] shadow-[0_0_20px_rgba(255,42,75,0.45)] hover:shadow-[0_0_30px_rgba(255,42,75,0.65)]",
-    secondary: "bg-[#0B2556] hover:bg-[#12356B] text-[#E2E8F0] hover:text-white border-[#CBD5E1]/40 hover:border-[#CBD5E1] shadow-[0_0_15px_rgba(203,213,225,0.12)] hover:shadow-[0_0_25px_rgba(203,213,225,0.25)]",
-    ice: "bg-[#061533] hover:bg-[#0B2556] text-[#CBD5E1] border-[#CBD5E1]/50 hover:border-white shadow-[0_0_15px_rgba(203,213,225,0.2)]",
-    threat: "bg-[#991B1B] hover:bg-[#DC2626] text-white border-[#FF2A4B] shadow-[0_0_20px_rgba(255,42,75,0.5)]",
-    outline: "bg-transparent hover:bg-[#0B2556]/80 text-[#CBD5E1] hover:text-white border-[#184384] hover:border-[#CBD5E1]"
+    primary: "bg-[#E31424] hover:bg-[#C41724] text-white border-[#FF1E2D]/80 hover:border-[#FF1E2D] shadow-[0_0_20px_rgba(255,30,45,0.45)] hover:shadow-[0_0_30px_rgba(255,30,45,0.65)]",
+    secondary: "bg-[#0B2A5E] hover:bg-[#1248A8] text-[#DEE7F0] hover:text-white border-[#D9E1EA]/40 hover:border-[#F0F5FA] shadow-[0_0_15px_rgba(217,225,234,0.12)] hover:shadow-[0_0_25px_rgba(217,225,234,0.35)]",
+    ice: "bg-[#071A2E] hover:bg-[#0B2A5E] text-[#D9E1EA] border-[#C2CDD9]/60 hover:border-[#F0F5FA] shadow-[0_0_15px_rgba(217,225,234,0.2)] hover:shadow-[0_0_20px_rgba(217,225,234,0.35)]",
+    threat: "bg-[#A01D29] hover:bg-[#E31424] text-white border-[#FF1E2D] shadow-[0_0_20px_rgba(255,30,45,0.5)]",
+    outline: "bg-transparent hover:bg-[#0B2A5E]/80 text-[#D9E1EA] hover:text-white border-[#17406E] hover:border-[#D9E1EA] hover:shadow-[0_0_18px_rgba(217,225,234,0.25)]"
   };
 
   return (
@@ -54,7 +54,7 @@ export const CyberButton: React.FC<CyberButtonProps> = ({
           {icon && iconPosition === 'left' && <span className="shrink-0">{icon}</span>}
           <span>{children}</span>
           {badge && (
-            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-white/10 rounded font-mono text-[#65E7FF] border border-[#00CFFF]/30">
+            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-[#D9E1EA]/15 rounded font-mono text-[#EAF1F8] border border-[#D9E1EA]/50 shadow-[0_0_8px_rgba(217,225,234,0.2)]">
               {badge}
             </span>
           )}

@@ -103,9 +103,10 @@ const BitsPillNav: React.FC<BitsPillNavProps> = ({
 
   return (
     <nav
-      className={`relative items-stretch rounded-full px-1.5 py-1 bg-[#071A2E]/85 backdrop-blur-xl border border-[#17406E]/60 shadow-lg ${className}`}
+      className={`relative items-stretch rounded-full px-1.5 py-1 bg-[#071A2E]/85 backdrop-blur-xl border border-[#D9E1EA]/25 shadow-lg shadow-[0_0_18px_rgba(217,225,234,0.15)] ${className}`}
       aria-label="Primary"
     >
+      <span className="absolute top-px left-6 right-6 h-px bg-gradient-to-r from-transparent via-[#EAF1F8]/60 to-transparent pointer-events-none" />
       {items.map((item, i) => {
         const isActive = activeId === item.id;
         return (
@@ -128,6 +129,12 @@ const BitsPillNav: React.FC<BitsPillNavProps> = ({
                 circleRefs.current[i] = el;
               }}
             />
+            {isActive && (
+              <span
+                className="absolute inset-0 rounded-full ring-1 ring-[#D9E1EA]/50 shadow-[0_0_12px_rgba(217,225,234,0.35)] pointer-events-none"
+                aria-hidden="true"
+              />
+            )}
             <span className="label-stack relative inline-block leading-[1] z-[2]">
               <span className="pill-label relative z-[2] inline-block leading-[1]" style={{ willChange: 'transform' }}>
                 {item.label}
@@ -142,7 +149,7 @@ const BitsPillNav: React.FC<BitsPillNavProps> = ({
             </span>
             {isActive && (
               <span
-                className="absolute left-1/2 -bottom-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full z-[4] bg-[#00A8FF] shadow-[0_0_6px_#00A8FF]"
+                className="absolute left-1/2 -bottom-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full z-[4] bg-[#D9E1EA] shadow-[0_0_8px_#D9E1EA]"
                 aria-hidden="true"
               />
             )}

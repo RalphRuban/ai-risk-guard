@@ -2,7 +2,6 @@ import React from 'react';
 import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId } from '../../types';
-import { FileText, Download, Printer, ShieldCheck, CheckCircle2, ArrowRight } from 'lucide-react';
 
 export const View14Reports: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
   const reports = [
@@ -12,11 +11,11 @@ export const View14Reports: React.FC<{ onNavigate: (view: ViewId) => void }> = (
   ];
 
   return (
-    <div className="py-8 px-4 sm:px-6 max-w-7xl mx-auto space-y-6">
+    <div className="py-8 px-4 sm:px-6 max-w-[1780px] mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#1E3C5C]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#17406E]">
         <div>
-          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00CFFF] tracking-widest mb-1">
+          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00A8FF] tracking-widest mb-1">
             <span>AUDIT DOCUMENTATION // COMPLIANCE ARCHIVE</span>
           </div>
           <h1 className="font-headline font-bold text-2xl sm:text-3xl text-white">
@@ -44,24 +43,24 @@ export const View14Reports: React.FC<{ onNavigate: (view: ViewId) => void }> = (
           >
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center font-mono text-xs">
               <div className="lg:col-span-8 space-y-2">
-                <div className="flex flex-wrap items-center gap-4 text-[11px] text-[#8D9AAA]">
+                <div className="flex flex-wrap items-center gap-4 text-[11px] text-[#9AA7B8]">
                   <span>DATE: <strong className="text-white">{rep.date}</strong></span>
-                  <span>AUDIT HASH: <code className="text-[#00CFFF]">{rep.hash}</code></span>
+                  <span>AUDIT HASH: <code className="text-[#00A8FF]">{rep.hash}</code></span>
                   <span>MITIGATED VULNS: <strong className="text-white">{rep.mitigated}</strong></span>
                 </div>
-                <p className="text-[11px] text-[#8D9AAA]">
+                <p className="text-[11px] text-[#9AA7B8]">
                   Cryptographically signed audit statement validating zero unmitigated critical CWEs across 128 production repositories.
                 </p>
               </div>
 
               <div className="lg:col-span-4 flex items-center justify-between lg:justify-end gap-4">
-                <div className="text-center p-2 bg-[#02050B] border border-[#1E3C5C] w-20">
-                  <span className="text-[10px] text-[#8D9AAA] block">GRADE</span>
+                <div className="text-center p-2 bg-[#020B1A] border border-[#17406E] w-20">
+                  <span className="text-[10px] text-[#9AA7B8] block">GRADE</span>
                   <span className="font-headline font-bold text-xl text-[#00E699]">{rep.grade}</span>
                 </div>
 
-                <div className="text-center p-2 bg-[#02050B] border border-[#1E3C5C] w-24">
-                  <span className="text-[10px] text-[#8D9AAA] block">COMPLIANCE</span>
+                <div className="text-center p-2 bg-[#020B1A] border border-[#17406E] w-24">
+                  <span className="text-[10px] text-[#9AA7B8] block">COMPLIANCE</span>
                   <span className="font-headline font-bold text-base text-white">{rep.compliance}%</span>
                 </div>
 

@@ -37,7 +37,9 @@ def test_setup_script_shebang_and_key_steps():
 
 def test_setup_script_app_user_is_nologin():
     script = (DEPLOY / "azure-vm-setup.sh").read_text(encoding="utf-8")
-    assert "useradd --system --home-dir \"${APP_DIR}\" --shell /usr/sbin/nologin" in script
+    assert "useradd --system --groups docker" in script
+    assert "--shell /usr/sbin/nologin" in script
+    assert "usermod -aG docker" in script
 
 
 def test_setup_script_deploy_user_login_capable():

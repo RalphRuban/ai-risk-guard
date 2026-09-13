@@ -1,0 +1,8 @@
+# Development / CI-only dependencies. Production installs only
+# requirements.txt (see deploy/azure-vm-setup.sh). Pinned so CI is reproducible.
+pytest==9.0.3
+ruff==0.16.1
+mypy==2.3.0
+types-requests==2.33.0.20260712
+types-waitress==3.0.1.20260724
+types-PyYAML==6.0.12.20260724

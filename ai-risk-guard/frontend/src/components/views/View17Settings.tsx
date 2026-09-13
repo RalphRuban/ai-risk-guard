@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId } from '../../types';
-import { Settings, Save, Sliders, Shield, Terminal, CheckCircle2 } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { getSettings, updateSettings } from '../../api/client';
 
 export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
@@ -51,11 +51,11 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
   };
 
   return (
-    <div className="py-8 px-4 sm:px-6 max-w-5xl mx-auto space-y-6">
+    <div className="py-8 px-4 sm:px-6 max-w-[1780px] mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#1E3C5C]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#17406E]">
         <div>
-          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00CFFF] tracking-widest mb-1">
+          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00A8FF] tracking-widest mb-1">
             <span>PLATFORM CONFIGURATION // OPERATOR TUNING</span>
           </div>
           <h1 className="font-headline font-bold text-2xl sm:text-3xl text-white">
@@ -85,7 +85,7 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
       </div>
 
       {error && (
-        <div className="p-3 bg-[#8F1424]/20 border border-[#FF304F] text-[#FF304F] font-mono text-xs">
+        <div className="p-3 bg-[#7E1120]/20 border border-[#FF1E2D] text-[#FF1E2D] font-mono text-xs">
           {error}
         </div>
       )}
@@ -100,31 +100,31 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
         >
           <div className="space-y-4 font-mono text-xs">
             <div className="space-y-2">
-              <div className="flex justify-between text-[#8D9AAA]">
+              <div className="flex justify-between text-[#9AA7B8]">
                 <span>ACTIVE SCAN MODE:</span>
-                <span className="text-[#00CFFF] font-bold">{scanMode.toUpperCase()}</span>
+                <span className="text-[#00A8FF] font-bold">{scanMode.toUpperCase()}</span>
               </div>
               <select
                 value={scanMode}
                 onChange={(e) => setScanMode(e.target.value)}
-                className="w-full bg-[#06101F] border border-[#1E3C5C] text-[#D7DEE7] px-3 py-2 cursor-pointer"
+                className="w-full bg-[#050B16] border border-[#17406E] text-[#D9E1EA] px-3 py-2 cursor-pointer"
               >
                 <option value="docker_only">docker_only</option>
                 <option value="sandbox_with_local_fallback">sandbox_with_local_fallback</option>
               </select>
-              <div className="flex justify-between text-[10px] text-[#8D9AAA]">
+              <div className="flex justify-between text-[10px] text-[#9AA7B8]">
                 <span>DOCKER-ONLY / SANDBOX + LOCAL FALLBACK</span>
               </div>
             </div>
 
-            <div className="pt-2 flex items-center justify-between border-t border-[#1E3C5C]/50">
+            <div className="pt-2 flex items-center justify-between border-t border-[#17406E]/50">
               <span className="text-white">CodeQL Provisioning:</span>
               <button
                 onClick={() => setCodeqlEnabled(!codeqlEnabled)}
                 className={`px-3 py-1 text-[10px] font-bold border transition-colors ${
                   codeqlEnabled
                     ? 'bg-[#00E699]/20 border-[#00E699] text-[#00E699]'
-                    : 'bg-[#030914] border-[#1E3C5C] text-[#8D9AAA]'
+                    : 'bg-[#050B16] border-[#17406E] text-[#9AA7B8]'
                 }`}
               >
                 {codeqlEnabled ? 'ENABLED' : 'DISABLED'}
@@ -141,25 +141,25 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
         >
           <div className="space-y-4 font-mono text-xs">
             <div className="space-y-2">
-              <div className="flex justify-between text-[#8D9AAA]">
+              <div className="flex justify-between text-[#9AA7B8]">
                 <span>NETWORK MODE:</span>
                 <span className="text-[#00E699] font-bold">{sandboxNetwork.toUpperCase()}</span>
               </div>
               <select
                 value={sandboxNetwork}
                 onChange={(e) => setSandboxNetwork(e.target.value)}
-                className="w-full bg-[#06101F] border border-[#1E3C5C] text-[#D7DEE7] px-3 py-2 cursor-pointer"
+                className="w-full bg-[#050B16] border border-[#17406E] text-[#D9E1EA] px-3 py-2 cursor-pointer"
               >
                 <option value="none">none (airgap)</option>
                 <option value="bridge">bridge</option>
               </select>
-              <div className="flex justify-between text-[10px] text-[#8D9AAA]">
+              <div className="flex justify-between text-[10px] text-[#9AA7B8]">
                 <span>DOCKER: {dockerAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}</span>
               </div>
             </div>
 
-            <div className="p-2.5 bg-[#02050B] border border-[#1E3C5C] space-y-1 text-[10px] text-[#8D9AAA]">
-              <div className="text-[#00CFFF]">ISOLATION POLICY:</div>
+            <div className="p-2.5 bg-[#020B1A] border border-[#17406E] space-y-1 text-[10px] text-[#9AA7B8]">
+              <div className="text-[#00A8FF]">ISOLATION POLICY:</div>
               <div>Network: {sandboxNetwork.toUpperCase()}</div>
               <div>Rootfs read-only (--read-only)</div>
               <div>Max process table PID limit: 32</div>

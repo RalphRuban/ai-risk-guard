@@ -23,18 +23,33 @@ from core.llm.model_resolver import resolve_gemini_model
 from utils.logger import logger
 
 # Shared across all LLM features: a hard cap on concurrent Gemini calls and a
-# circuit breaker set when the API reports rate limiting.
+# self-healing guard that briefly suppresses follow-up calls after a 429, then
+# recovers so a single rate-limit spike does not disable LLM features for the
+# whole scan. The event remains for explicit "all models exhausted" breaks.
 _gemini_semaphore = threading.Semaphore(2)
 _gemini_rate_limited_event = threading.Event()
+_gemini_rate_limited_until: float = 0.0
+
+
+def _mark_rate_limited() -> None:
+    global _gemini_rate_limited_until
+    _gemini_rate_limited_until = (
+        time.monotonic() + config.app.llm.rate_limit_cooldown_seconds
+    )
+    _gemini_rate_limited_event.set()
 
 
 def is_rate_limited() -> bool:
-    """Return True when Gemini rate limiting has tripped the circuit breaker."""
+    """True while the 429 cooldown is active or an explicit breaker is set."""
+    if time.monotonic() < _gemini_rate_limited_until:
+        return True
     return _gemini_rate_limited_event.is_set()
 
 
 def reset_rate_limit_state() -> None:
-    """Clear the rate-limit circuit breaker (called at the start of each scan)."""
+    """Clear the rate-limit guard (scan start, or after a successful call)."""
+    global _gemini_rate_limited_until
+    _gemini_rate_limited_until = 0.0
     _gemini_rate_limited_event.clear()
 
 
@@ -119,6 +134,7 @@ class GeminiClient:
                     contents=prompt,
                 )
             content = response.text
+            reset_rate_limit_state()
             if gemini_latency is not None:
                 gemini_latency.observe(time.time() - gemini_start)
             if gemini_calls_total is not None:
@@ -126,8 +142,12 @@ class GeminiClient:
             return content
         except Exception as exc:
             if _is_rate_limit_error(exc):
-                _gemini_rate_limited_event.set()
-                logger.error("Gemini rate limited — disabling LLM features for this scan", "LLM")
+                _mark_rate_limited()
+                logger.warning(
+                    f"Gemini rate limited — suppressing follow-up LLM calls for "
+                    f"{config.app.llm.rate_limit_cooldown_seconds:.0f}s",
+                    "LLM",
+                )
             else:
                 logger.error(f"Gemini generate failed: {exc}", "LLM")
             if gemini_calls_total is not None:

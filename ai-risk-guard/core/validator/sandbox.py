@@ -3,6 +3,7 @@ Hardened Docker sandbox validator.
 """
 
 import ast
+import json
 import logging
 import os
 import re
@@ -48,29 +49,7 @@ ARGPARSE_REQUIRED_ARGS_RE = re.compile(
 )
 
 
-def _build_parent_map(tree):
-    """Build a child-to-parent mapping for an AST tree."""
-    parents = {}
-    for parent in ast.walk(tree):
-        for child in ast.iter_child_nodes(parent):
-            parents[id(child)] = parent
-    return parents
 
-
-def _is_in_pytest_raises(node, parents):
-    """Check if a node is inside a ``with pytest.raises(...):`` block."""
-    current = parents.get(id(node))
-    while current is not None:
-        if isinstance(current, ast.With):
-            expr = current.context_expr
-            if (isinstance(expr, ast.Call)
-                    and isinstance(expr.func, ast.Attribute)
-                    and isinstance(expr.func.value, ast.Name)
-                    and expr.func.value.id == "pytest"
-                    and expr.func.attr == "raises"):
-                return True
-        current = parents.get(id(current))
-    return False
 
 
 def _build_import_aliases(tree):
@@ -103,12 +82,12 @@ def _resolve_name(aliases, name):
 def contains_unsafe_pattern(code: str):
     """AST-aware safety pre-screening to avoid false positives on strings/comments.
 
-    Safe patterns like ``with pytest.raises(TypeError): subprocess.run(..., shell=True)``
-    are excluded because the dangerous call is the *test target*, not production code.
+    Dangerous calls are always blocked, including when wrapped in
+    ``with pytest.raises(...)`` — attackers can trivially wrap an exploit in a
+    pytest.raises block, and the call still executes inside the sandbox.
     """
     try:
         tree = ast.parse(code)
-        parents = _build_parent_map(tree)
         aliases = _build_import_aliases(tree)
 
         for node in ast.walk(tree):
@@ -119,28 +98,28 @@ def contains_unsafe_pattern(code: str):
                     if isinstance(val, ast.Name):
                         resolved = _resolve_name(aliases, val.id)
                         # os.system(), os.popen(), os.remove(), os.rename()
-                        if resolved == "os" and fn.attr in ("system", "popen", "remove", "rename") and not _is_in_pytest_raises(node, parents):
+                        if resolved == "os" and fn.attr in ("system", "popen", "remove", "rename"):
                             return True
                         # pickle.loads()
-                        if resolved == "pickle" and fn.attr == "loads" and not _is_in_pytest_raises(node, parents):
+                        if resolved == "pickle" and fn.attr == "loads":
                             return True
                         # subprocess.run, .Popen, .call (blocked unless shell=False is explicit)
-                        if resolved == "subprocess" and fn.attr in ("run", "Popen", "call") and not _is_in_pytest_raises(node, parents):
+                        if resolved == "subprocess" and fn.attr in ("run", "Popen", "call"):
                             shell_kw = next((kw for kw in node.keywords if kw.arg == "shell"), None)
                             if shell_kw is None:
                                 return True
                             if not isinstance(shell_kw.value, ast.Constant) or shell_kw.value.value is not False:
                                 return True
                         # ctypes.* — allows arbitrary memory/OS access; any usage is blocked
-                        if resolved == "ctypes" and not _is_in_pytest_raises(node, parents):
+                        if resolved == "ctypes":
                             return True
                         # shutil.rmtree()
-                        if resolved == "shutil" and fn.attr == "rmtree" and not _is_in_pytest_raises(node, parents):
+                        if resolved == "shutil" and fn.attr == "rmtree":
                             return True
                         # webbrowser.open()
-                        if resolved == "webbrowser" and fn.attr == "open" and not _is_in_pytest_raises(node, parents):
+                        if resolved == "webbrowser" and fn.attr == "open":
                             return True
-                if isinstance(node.func, ast.Name) and node.func.id in ("eval", "exec", "__import__") and not _is_in_pytest_raises(node, parents):
+                if isinstance(node.func, ast.Name) and node.func.id in ("eval", "exec", "__import__"):
                     return True
                 # builtins.eval / builtins.exec / builtins.__import__ and the
                 # __builtins__ alias — must be blocked (no pytest.raises escape).
@@ -148,7 +127,7 @@ def contains_unsafe_pattern(code: str):
                     _bv = node.func.value
                     if isinstance(_bv, ast.Name) and _bv.id in ("builtins", "__builtins__") and node.func.attr in ("eval", "exec", "__import__"):
                         return True
-                if isinstance(node.func, ast.Name) and node.func.id == "getattr" and not _is_in_pytest_raises(node, parents) and len(node.args) >= 2:
+                if isinstance(node.func, ast.Name) and node.func.id == "getattr" and len(node.args) >= 2:
                     target = node.args[0]
                     attr = node.args[1]
                     if isinstance(target, ast.Name):
@@ -165,7 +144,7 @@ def contains_unsafe_pattern(code: str):
                 if isinstance(node.func, ast.Name) and node.func.id == "compile":
                     # compile(source, ...) with mode='exec' or mode='eval'
                     raw_modes = [getattr(kw.value, "value", None) for kw in node.keywords if kw.arg == "mode"]
-                    if raw_modes and any(m in ("exec", "eval") for m in raw_modes if m) and not _is_in_pytest_raises(node, parents):
+                    if raw_modes and any(m in ("exec", "eval") for m in raw_modes if m):
                         return True
             elif isinstance(node, ast.Import):
                 if any(_resolve_name(aliases, alias.name) == "ctypes" for alias in node.names):
@@ -297,8 +276,8 @@ class Sandbox:
                 capture_output=True, timeout=30,
             )
             logger.info(f"Cleaned up {len(container_ids)} orphaned sandbox container(s)", "SANDBOX")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Orphaned container cleanup failed: {e}", "SANDBOX")
 
     def _ensure_image_available(self):
         """Verify the Docker image exists locally; pull or build it if missing (lazy, cached)."""
@@ -464,8 +443,14 @@ class Sandbox:
                         n += take
                     else:
                         truncated = True
-            except Exception:
-                pass
+            except Exception as e:
+                if isinstance(e, (UnicodeDecodeError, ValueError)) and getattr(stream, "name", "") == "<stdout>":
+                    n = 0
+                    truncated = False
+                else:
+                    logger.warning(f"Error reading sandbox output stream: {e}", "SANDBOX")
+                marker_ref["truncated"] = False
+                return
             finally:
                 marker_ref["truncated"] = truncated
                 try:
@@ -796,11 +781,6 @@ class Sandbox:
             if contains_unsafe_pattern(test_content):
                 return {"success": False, "error": "Unsafe pattern detected in test"}
 
-            if not extra_files:
-                cached = self._sandbox_cache.get(source_code or "", test_content, "test", cache_variant)
-                if cached is not None:
-                    return cached
-
             safe_name = self._safe_test_path(test_file_path)
 
             with TempDir(prefix="airisk_tests_") as temp_dir:
@@ -845,6 +825,17 @@ class Sandbox:
                     with open(target_path, "w", encoding="utf-8") as tf:
                         tf.write(test_content)
 
+                if not extra_files:
+                    from sandbox.mock_header import MOCKED_ENV_VARS
+                    evidence_variant = "|".join([
+                        cache_variant,
+                        "rebind=" + json.dumps(rebind_info, sort_keys=True, default=str),
+                        "env=" + json.dumps(sorted(MOCKED_ENV_VARS)),
+                    ])
+                    cached = self._sandbox_cache.get(source_code or "", test_content, "test", evidence_variant)
+                    if cached is not None:
+                        return cached
+
                 if missing:
                     # Never pip-install attacker-controlled package names at
                     # runtime (this previously forced --network=bridge + a
@@ -865,7 +856,7 @@ class Sandbox:
                 from sandbox.mock_header import MOCKED_ENV_VARS
                 result["mocked_env_vars"] = list(MOCKED_ENV_VARS)
                 if not extra_files:
-                    self._sandbox_cache.set(source_code or "", test_content, "test", result, cache_variant)
+                    self._sandbox_cache.set(source_code or "", test_content, "test", result, evidence_variant)
                 return result
 
         except InputValidationError as e:

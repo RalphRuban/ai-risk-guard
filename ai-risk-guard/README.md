@@ -70,6 +70,11 @@ cd frontend && npm run build # outputs to ../static/frontend
 python app/app.py            # Flask serves both API and SPA on :8000
 ```
 
+> **Note:** `demo.py` (and its test in `tests/demo_test.py`) is the intentionally
+> vulnerable demo target used to exercise the scanner. It deliberately contains a
+> hardcoded secret, SQL injection, command injection, path traversal, SSRF, and
+> weak hashing — it is **not** a live credential and must never be treated as one.
+
 ## GitHub App setup
 
 1. Create a GitHub App at <https://github.com/settings/apps>.
@@ -173,13 +178,23 @@ Operational notes:
 | `GITHUB_WEBHOOK_SECRET` | Required | Webhook signature verification |
 | `GITHUB_APP_CLIENT_ID` | Required | GitHub OAuth login |
 | `GITHUB_APP_CLIENT_SECRET` | Required | OAuth token exchange |
+| `FLASK_SECRET_KEY` | Production | Session signing; REQUIRED in production (random if unset → sessions reset) |
+| `CI_VALIDATION_SECRET` | Optional | Shared secret for CI-runner fallback validation (Phase E) |
+| `CI_VALIDATION_TOKEN` | Optional | GitHub token (repo scope) used for repository_dispatch |
 | `GEMINI_API_KEY` | Optional | LLM patch generation (falls back to AST-only) |
-| `FLASK_SECRET_KEY` | Optional | Session signing (random if unset → sessions reset) |
 | `GITHUB_APP_SLUG` | — | Install-app banner link |
 | `SESSION_COOKIE_SECURE` | — | `true` when serving over HTTPS |
-| `FRONTEND_ORIGIN` | — | CORS origin when frontend is served separately |
+| `FRONTEND_ORIGIN` | — | CORS origin when frontend is served separately (Vite dev server) |
 | `PORT` | — | Bind port override (used by Render/Heroku) |
 | `DB_PATH` | — | SQLite database path (default `data/dashboard.db`) |
+| `APP_DASHBOARD_URL` | — | Public dashboard URL in the PR comment footer |
+| `CI_VALIDATION_BASE_URL` | — | Public base URL for the CI-runner fallback |
+| `SARIF_INFORMATION_URI` | — | Project URL embedded in generated SARIF |
+| `METRICS_SCRAPE_TOKEN` | — | Bearer token for Prometheus `/api/metrics/prometheus` |
+| `LOG_LEVEL` | — | Logging override (DEBUG/INFO/WARNING/ERROR) |
+| `APP_ENV` | — | `production` fails startup if required secrets are missing |
+| `PROJ_ENV` | — | Dotenv file to load (default `.env`) |
+| `CONFIG_STRICT` | — | `0` restores lenient config loading; strict (default) aborts on bad config |
 
 ## Development
 

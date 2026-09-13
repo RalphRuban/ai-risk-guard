@@ -135,6 +135,58 @@ class TestDiffEngineFunctions:
         assert self.diff.should_scan_line("C:\\tmp\\demo1.py", 2, diff_map) is True
         assert self.diff.should_scan_line("C:\\tmp\\demo1.py", 5, diff_map) is False
 
+    def test_parse_diff_non_b_prefix(self):
+        diff_text = (
+            "--- src/app.py\n"
+            "+++ src/app.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " def a():\n"
+            "+    x = 1\n"
+        )
+        assert self.diff.parse_diff(diff_text) == {"src/app.py": {2}}
+
+    def test_parse_diff_no_prefix_headers(self):
+        diff_text = (
+            "+++ app.py\n"
+            "@@ -2,2 +2,2 @@\n"
+            "+    y = 2\n"
+        )
+        assert self.diff.parse_diff(diff_text) == {"app.py": {2}}
+
+    def test_parse_diff_no_newline_marker_does_not_skew_line_numbers(self):
+        diff_text = (
+            "+++ b/app.py\n"
+            "@@ -1,3 +1,4 @@\n"
+            " line1\n"
+            "-line2\n"
+            "+line2\n"
+            " line3\n"
+            "\\ No newline at end of file\n"
+            "+    tail = 9\n"
+        )
+        assert self.diff.parse_diff(diff_text) == {"app.py": {2, 4}}
+
+    def test_parse_diff_pure_deletion_registers_file(self):
+        diff_text = (
+            "--- a/app.py\n"
+            "+++ b/app.py\n"
+            "@@ -1,5 +0,0 @@\n"
+            "-line1\n"
+            "-line2\n"
+        )
+        diff_map = self.diff.parse_diff(diff_text)
+        assert diff_map == {"app.py": set()}
+        assert self.diff.should_scan_line("app.py", 1, diff_map) is False
+
+    def test_parse_diff_hunk_trailing_context_ignored(self):
+        diff_text = (
+            "+++ b/app.py\n"
+            "@@ -10,3 +10,3 @@ def combine(a, b):\n"
+            "     return a\n"
+            "+    return a + b\n"
+        )
+        assert self.diff.parse_diff(diff_text) == {"app.py": {11}}
+
 
 # =========================================================
 # FEATURE 3: VULNERABILITY SCANNER SCOPE TESTS
@@ -518,21 +570,23 @@ class TestRiskEngineQualityFactor:
 class TestValidatorAgent:
     def test_validation_with_mocked_sandbox(self):
         from core.agents.validator_agent import ValidatorAgent
-        agent = ValidatorAgent()
-        agent.sandbox.run = Mock(return_value={"success": True, "output": "ok"})
-        agent.sandbox.run_tests = Mock(return_value={"success": True, "output": "tests ok"})
+        with patch("core.agents.validator_agent.Sandbox") as MockSandbox:
+            mock_sandbox = MockSandbox.return_value
+            mock_sandbox.run = Mock(return_value={"success": True, "output": "ok"})
+            mock_sandbox.run_tests = Mock(return_value={"success": True, "output": "tests ok"})
+            agent = ValidatorAgent()
 
-        context = {
-            "patch_candidates": [
-                {
-                    "id": "cand_1",
-                    "source": "ast",
-                    "code": 'import subprocess\nsubprocess.run(["ls"], shell=False)',
-                }
-            ],
-            "test_file_path": None,
-        }
-        result = agent.execute(context)
+            context = {
+                "patch_candidates": [
+                    {
+                        "id": "cand_1",
+                        "source": "ast",
+                        "code": 'import subprocess\nsubprocess.run(["ls"], shell=False)',
+                    }
+                ],
+                "test_file_path": None,
+            }
+            result = agent.execute(context)
         assert result is not None
         candidate = result["patch_candidates"][0]
         assert "validation_score" in candidate
@@ -579,21 +633,23 @@ class TestValidatorAgent:
 
     def test_validation_pipeline_stores_ssrf_result_on_mocked_sandbox(self):
         from core.agents.validator_agent import ValidatorAgent
-        agent = ValidatorAgent()
-        agent.sandbox.run = Mock(return_value={"success": True, "output": "ok"})
-        agent.sandbox.run_tests = Mock(return_value={"success": True, "output": "ok"})
-        code = (
-            "import requests\n"
-            "import ipaddress\n"
-            "def validate_url_ssrf(url): return url\n"
-            "requests.get(validate_url_ssrf('https://example.com'))\n"
-        )
-        context = {
-            "patch_candidates": [
-                {"id": "ssrf_cand", "source": "ast", "code": code}
-            ],
-        }
-        result = agent.execute(context)
+        with patch("core.agents.validator_agent.Sandbox") as MockSandbox:
+            mock_sandbox = MockSandbox.return_value
+            mock_sandbox.run = Mock(return_value={"success": True, "output": "ok"})
+            mock_sandbox.run_tests = Mock(return_value={"success": True, "output": "ok"})
+            agent = ValidatorAgent()
+            code = (
+                "import requests\n"
+                "import ipaddress\n"
+                "def validate_url_ssrf(url): return url\n"
+                "requests.get(validate_url_ssrf('https://example.com'))\n"
+            )
+            context = {
+                "patch_candidates": [
+                    {"id": "ssrf_cand", "source": "ast", "code": code}
+                ],
+            }
+            result = agent.execute(context)
         candidate = result["patch_candidates"][0]
         details = candidate.get("validation_details", {})
         assert "ssrf_validator" in details

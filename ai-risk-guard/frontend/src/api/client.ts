@@ -217,8 +217,15 @@ export async function getHealthDb(): Promise<{ status: string }> {
   return data
 }
 
-export async function getHealthGemini(): Promise<{ status: string; configured: boolean }> {
-  const { data } = await api.get<{ status: string; configured: boolean }>('/health/gemini')
+export interface GeminiHealth {
+  status: string;
+  configured: boolean;
+  model: string | null;
+  error: string | null;
+}
+
+export async function getHealthGemini(): Promise<GeminiHealth> {
+  const { data } = await api.get<GeminiHealth>('/health/gemini')
   return data
 }
 

@@ -21,7 +21,12 @@ class PolicyEngine:
         self.policy = self._load_policy()
 
     def _load_policy(self) -> dict[str, Any]:
-        """Load policy rules from the central config registry."""
+        """Load policy rules from the central config registry.
+
+        Fails loud instead of silently returning an empty rule set: an empty
+        policy would pass every compliance check (fail-open), so any load
+        error aborts the engine and declares the scan non-compliant.
+        """
         try:
             pc = config.policy
             return {
@@ -51,7 +56,10 @@ class PolicyEngine:
             }
         except Exception as e:
             logger.error(f"Failed to load policy from config: {e}", "POLICY")
-            return {}
+            raise RuntimeError(
+                f"Failed to load security policy while checking compliance: {e} — "
+                "refusing to run with empty rules"
+            ) from e
 
     def check_compliance(self, code: str) -> dict[str, Any]:
         """

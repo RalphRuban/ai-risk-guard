@@ -2,7 +2,7 @@ import React from 'react';
 import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId } from '../../types';
-import { Github, Radio, CheckCircle2, GitPullRequest, ArrowRight, Shield } from 'lucide-react';
+import { Github, Radio, Shield } from 'lucide-react';
 
 export const View16GitHub: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
   const events = [
@@ -12,11 +12,11 @@ export const View16GitHub: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
   ];
 
   return (
-    <div className="py-8 px-4 sm:px-6 max-w-7xl mx-auto space-y-6">
+    <div className="py-8 px-4 sm:px-6 max-w-[1780px] mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#1E3C5C]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#17406E]">
         <div>
-          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00CFFF] tracking-widest mb-1">
+          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00A8FF] tracking-widest mb-1">
             <span>INTEGRATION GATEWAY // GITHUB APP RUNTIME</span>
           </div>
           <h1 className="font-headline font-bold text-2xl sm:text-3xl text-white">
@@ -35,31 +35,31 @@ export const View16GitHub: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
 
       {/* Connection Status Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-4 bg-[#06101F] border border-[#1E3C5C] space-y-1">
-          <div className="flex items-center space-x-2 font-mono text-xs text-[#8D9AAA]">
-            <Github className="w-4 h-4 text-[#00CFFF]" />
+        <div className="p-4 bg-[#050B16] border border-[#17406E] space-y-1">
+          <div className="flex items-center space-x-2 font-mono text-xs text-[#9AA7B8]">
+            <Github className="w-4 h-4 text-[#00A8FF]" />
             <span>APP INSTALLATION</span>
           </div>
           <div className="font-headline font-bold text-xl text-white">AUREX Core</div>
           <span className="font-mono text-[10px] text-[#00E699]">● App ID: 948201 (Active)</span>
         </div>
 
-        <div className="p-4 bg-[#06101F] border border-[#1E3C5C] space-y-1">
-          <div className="flex items-center space-x-2 font-mono text-xs text-[#8D9AAA]">
-            <Radio className="w-4 h-4 text-[#00CFFF]" />
+        <div className="p-4 bg-[#050B16] border border-[#17406E] space-y-1">
+          <div className="flex items-center space-x-2 font-mono text-xs text-[#9AA7B8]">
+            <Radio className="w-4 h-4 text-[#00A8FF]" />
             <span>WEBHOOK LISTENER</span>
           </div>
-          <div className="font-headline font-bold text-xl text-[#00CFFF]">POST /webhook</div>
+          <div className="font-headline font-bold text-xl text-[#00A8FF]">POST /webhook</div>
           <span className="font-mono text-[10px] text-[#00E699]">100% Delivery Success</span>
         </div>
 
-        <div className="p-4 bg-[#06101F] border border-[#1E3C5C] space-y-1">
-          <div className="flex items-center space-x-2 font-mono text-xs text-[#8D9AAA]">
+        <div className="p-4 bg-[#050B16] border border-[#17406E] space-y-1">
+          <div className="flex items-center space-x-2 font-mono text-xs text-[#9AA7B8]">
             <Shield className="w-4 h-4 text-[#00E699]" />
             <span>SECRET VALIDATION</span>
           </div>
           <div className="font-headline font-bold text-xl text-white">HMAC-SHA256</div>
-          <span className="font-mono text-[10px] text-[#65E7FF]">Payload verification active</span>
+          <span className="font-mono text-[10px] text-[#5BC9FF]">Payload verification active</span>
         </div>
       </div>
 
@@ -71,7 +71,7 @@ export const View16GitHub: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
       >
         <div className="overflow-x-auto">
           <table className="w-full text-left font-mono text-xs">
-            <thead className="border-b border-[#1E3C5C] text-[#8D9AAA] text-[10px]">
+            <thead className="border-b border-[#17406E] text-[#9AA7B8] text-[10px]">
               <tr>
                 <th className="py-2 px-3">EVENT TYPE</th>
                 <th className="py-2 px-3">REPOSITORY</th>
@@ -80,13 +80,13 @@ export const View16GitHub: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
                 <th className="py-2 px-3 text-right">DISPATCH RESULT</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1E3C5C]/50 text-[#D7DEE7]">
+            <tbody className="divide-y divide-[#17406E]/50 text-[#D9E1EA]">
               {events.map((ev, i) => (
-                <tr key={i} className="hover:bg-[#06101F] transition-colors">
+                <tr key={i} className="hover:bg-[#050B16] transition-colors">
                   <td className="py-2.5 px-3 font-semibold text-white">{ev.event}</td>
-                  <td className="py-2.5 px-3 text-[#00CFFF]">{ev.repo}</td>
-                  <td className="py-2.5 px-3 text-[#65E7FF]">{ev.pr}</td>
-                  <td className="py-2.5 px-3 text-[#8D9AAA]">{ev.time}</td>
+                  <td className="py-2.5 px-3 text-[#00A8FF]">{ev.repo}</td>
+                  <td className="py-2.5 px-3 text-[#5BC9FF]">{ev.pr}</td>
+                  <td className="py-2.5 px-3 text-[#9AA7B8]">{ev.time}</td>
                   <td className="py-2.5 px-3 text-right">
                     <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-[#00E699]/20 text-[#00E699]">
                       {ev.result}

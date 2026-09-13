@@ -120,7 +120,8 @@ from utils.logger import logger
 # Load environment variables safely
 load_dotenv(os.environ.get("PROJ_ENV", ".env"))
 
-app = Flask(__name__)
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+app = Flask(__name__, static_folder=os.path.join(_project_root, "static"))
 app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 if not app.secret_key:
     app.secret_key = secrets.token_hex(32)
@@ -135,15 +136,26 @@ app.config["MAX_CONTENT_LENGTH"] = config.app.webhook.max_request_size_bytes
 # Session cookie hardening. SameSite=Lax is required for the OAuth callback:
 # GitHub redirects back to /auth/callback as a cross-site top-level navigation,
 # and SameSite=Strict would drop the cookie that holds the CSRF state.
+#
+# Secure cookies default ON in production (APP_ENV=production); any explicit
+# SESSION_COOKIE_SECURE override wins. Over HTTPS the cookie must be marked
+# Secure or the browser will silently drop it.
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
+_secure_cookie_env = os.environ.get("SESSION_COOKIE_SECURE")
+if _secure_cookie_env is None:
+    _secure_cookie = os.environ.get("APP_ENV", "").strip().lower() == "production"
+else:
+    _secure_cookie = _secure_cookie_env.lower() in ("1", "true", "yes")
+app.config["SESSION_COOKIE_SECURE"] = bool(_secure_cookie)
 
-# Trust X-Forwarded-Proto / X-Forwarded-Host from the first hop. Constraint
-# (accepted): the reverse proxy MUST be the only local client of this process,
-# otherwise a client could spoof the forwarded headers. Nginx on 127.0.0.1 is
-# the sole upstream, so trusting the first hop is safe here.
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[method-assign]
+# Trust X-Forwarded-For / X-Forwarded-Proto / X-Forwarded-Host from the first
+# hop. Constraint (accepted): the reverse proxy MUST be the only local client
+# of this process, otherwise a client could spoof the forwarded headers.
+# Nginx on 127.0.0.1 is the sole upstream, so trusting the first hop is safe.
+# x_for=1 is required so request.remote_addr reflects the real client IP
+# (used by the rate-limiters).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
 
 def login_required(view):
@@ -204,9 +216,7 @@ orchestrator = AIRiskGuard()
 diff_engine = DiffAwareScanner()
 
 # Path to React-built frontend
-import os as _os
-
-_static_dir = _os.path.join(_os.path.dirname(__file__), '..', 'static', 'frontend')
+_static_dir = os.path.join(_project_root, "static", "frontend")
 
 
 # =========================================================
@@ -228,10 +238,17 @@ def add_security_headers(response):
     origin = f" {FRONTEND_ORIGIN}" if FRONTEND_ORIGIN else ""
     response.headers["Content-Security-Policy"] = (
         f"default-src 'self'{origin}; "
-        f"script-src 'self'{origin} https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+        f"script-src 'self'{origin}; "
         f"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         f"font-src https://fonts.gstatic.com; "
         f"img-src 'self' data: https://avatars.githubusercontent.com"
+    )
+    # The app is served exclusively behind HTTPS in production (nginx + TLS), so
+    # HSTS is safe to enforce whenever the proxied request reports a secure scheme.
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Permissions-Policy"] = (
+        "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
     )
     return response
 
@@ -395,11 +412,44 @@ def _production() -> bool:
     return os.environ.get("APP_ENV", "").strip().lower() == "production"
 
 
+# Placeholder values from .env.example that must never be used as real secrets.
+# A value matching one of these is treated as "not set" (a copy of .env.example
+# must not ship forgeable webhook/CI/OAuth/session secrets).
+_PLACEHOLDER_PATTERNS = {
+    "your_github_app_id_here",
+    "your_webhook_secret_here",
+    "your_github_client_id_here",
+    "your_github_client_secret_here",
+    "your_app_slug_here",
+    "your_gemini_api_key_here",
+    "your_random_secret_key_here",
+    "your_ci_validation_secret_here",
+    "your_metrics_scrape_token_here",
+    "github_token_with_repo_scope",
+}
+_PLACEHOLDER_PREFIXES = (
+    "-----BEGIN",
+    "C:/path/to/",
+)
+
+
+def _is_placeholder_value(value: str) -> bool:
+    """True when a secret value is an obvious .env.example placeholder."""
+    v = (value or "").strip()
+    if not v:
+        return True
+    if v in _PLACEHOLDER_PATTERNS:
+        return True
+    return bool(v.startswith(_PLACEHOLDER_PREFIXES))
+
+
 def _check_required_env():
-    missing_required = [var for var in _REQUIRED_ENV if not os.environ.get(var)]
+    missing_required = [
+        var for var in _REQUIRED_ENV if _is_placeholder_value(os.environ.get(var))
+    ]
     for var in missing_required:
         logger.warning(f"Missing env var {var} — required for {_REQUIRED_ENV[var]}", "STARTUP")
-    if not os.environ.get("FLASK_SECRET_KEY"):
+    if _is_placeholder_value(os.environ.get("FLASK_SECRET_KEY")):
         logger.warning(
             "Missing env var FLASK_SECRET_KEY — sessions will be invalidated on every restart",
             "STARTUP",
@@ -408,18 +458,19 @@ def _check_required_env():
         ("GEMINI_API_KEY", "LLM patch generation will fail"),
         ("GITHUB_APP_SLUG", "the install-app banner link will be hidden"),
     ):
-        if not os.environ.get(var):
+        if _is_placeholder_value(os.environ.get(var)):
             logger.warning(f"Missing env var {var} — {note}", "STARTUP")
 
     if not _production():
         return
     missing = list(missing_required)
-    if not os.environ.get("FLASK_SECRET_KEY"):
+    if _is_placeholder_value(os.environ.get("FLASK_SECRET_KEY")):
         missing.append("FLASK_SECRET_KEY")
     if missing:
         raise RuntimeError(
             "Startup aborted: APP_ENV=production requires the following environment "
-            f"variables to be set: {', '.join(missing)}. "
+            f"variables to be set to real values (empty or placeholder values are "
+            f"rejected): {', '.join(missing)}. "
             "Configure them and restart the service."
         )
 
@@ -1358,17 +1409,79 @@ def _ci_validation_auth_ok() -> bool:
     return hmac.compare_digest(provided, secret)
 
 
+_CI_VALIDATION_JOB_TTL_SECONDS = 48 * 3600
+_CI_RESULT_STATUSES = frozenset({"completed", "failed", "skipped"})
+
+
+def _ci_validation_origin_ok() -> bool:
+    """Constrain CI-runner calls to the configured public base URL host.
+
+    Prevents a stolen shared secret from being replayed against a different
+    origin (cross-host reuse). The proxy sets Host on the way in; when no
+    base URL is configured the check is skipped (single-tenant).
+    """
+    from urllib.parse import urlparse
+
+    from services.github.ci_dispatch import ci_base_url
+    base = ci_base_url()
+    if not base:
+        return True
+    expected = (urlparse(base).hostname or "").lower()
+    if not expected:
+        return True
+    host = (request.host or "").split(":")[0].lower()
+    return host == expected
+
+
+def _ci_validation_ttl(row: dict) -> bool:
+    """True when an in-flight job is still fresh enough to act on.
+
+    Stale fetch/result calls are rejected; old jobs are only ever re-created
+    by a fresh capture of the same candidate, so a completed row (token
+    cleared) can never be replayed.
+    """
+    created_at = (row.get("created_at") or "").strip()
+    if not created_at:
+        return True
+    from datetime import UTC, datetime
+    try:
+        ts = datetime.fromisoformat(created_at.replace(" ", "T"))
+    except (ValueError, TypeError):
+        # Unparseable timestamp: reject to stay fail-closed on the TTL gate.
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - ts).total_seconds() <= _CI_VALIDATION_JOB_TTL_SECONDS
+
+
+def _ci_validation_token_ok(row: dict) -> bool:
+    """Validate the per-job bearer token when the job carries one.
+
+    Jobs created before the token migration keep an empty token and fall back
+    to shared-secret auth only; new jobs require the matching per-job token.
+    """
+    expected = (row.get("validation_token") or "").strip()
+    if not expected:
+        return True
+    provided = request.headers.get("X-CI-Validation-Token") or ""
+    return hmac.compare_digest(provided, expected)
+
+
 @app.route("/api/ci-validation/jobs/<int:job_id>", methods=["GET"])
 def ci_validation_job(job_id):
     """Serve a pending-validation job payload to the GitHub-hosted runner.
 
-    Auth: ``X-CI-Validation-Secret`` header (shared secret, machine-to-machine).
+    Auth: ``X-CI-Validation-Secret`` header (shared secret, machine-to-machine)
+    on the expected origin, plus TTL freshness. The response carries the job's
+    ``validation_token`` which the runner must return when posting results.
     """
-    if not _ci_validation_auth_ok():
+    if not _ci_validation_auth_ok() or not _ci_validation_origin_ok():
         return jsonify({"error": "unauthorized"}), 401
     row = get_pending_validation(job_id)
     if not row:
         return jsonify({"error": "unknown job"}), 404
+    if not _ci_validation_ttl(row):
+        return jsonify({"error": "job expired"}), 410
     try:
         extra_files = json.loads(row.get("extra_files") or "[]")
     except (ValueError, TypeError):
@@ -1387,6 +1500,7 @@ def ci_validation_job(job_id):
         "scan_mode": row["scan_mode"],
         "sandbox_network": row["sandbox_network"],
         "status": row["status"],
+        "validation_token": row.get("validation_token") or "",
     })
 
 
@@ -1394,11 +1508,13 @@ def ci_validation_job(job_id):
 def ci_validation_results():
     """Receive CI-runner validation results and re-validate affected scans.
 
-    Body: ``{job_id, status?, sandbox_res?, test_results?}``. A completed
-    result triggers a re-analysis of any pending scan for the same commit so
-    the PR comment/check pick up the runtime evidence even while Docker is down.
+    Body: ``{job_id, status, sandbox_res?, test_results?}``. Auth requires the
+    shared secret on the expected origin AND the job's per-job token (when one
+    exists). ``status`` must be an explicit allowed value. A ``completed``
+    result triggers re-analysis of any pending scan for the same commit so the
+    PR comment/check pick up the runtime evidence even while Docker is down.
     """
-    if not _ci_validation_auth_ok():
+    if not _ci_validation_auth_ok() or not _ci_validation_origin_ok():
         return jsonify({"error": "unauthorized"}), 401
     data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
@@ -1407,7 +1523,11 @@ def ci_validation_results():
     row = get_pending_validation(int(job_id))
     if not row:
         return jsonify({"error": "unknown job"}), 404
-    status = data.get("status") or "completed"
+    if not _ci_validation_ttl(row) or not _ci_validation_token_ok(row):
+        return jsonify({"error": "unauthorized"}), 401
+    status = data.get("status")
+    if status not in _CI_RESULT_STATUSES:
+        return jsonify({"error": "invalid status"}), 400
     try:
         from core.ci.validation import build_result_json
         result_json = build_result_json(
@@ -1902,12 +2022,54 @@ def get_policy_api():
 @app.route("/api/health/gemini", methods=["GET"])
 @login_required
 def gemini_health():
-    """Lightweight Gemini connectivity check (env var only — no API call)."""
+    """Gemini connectivity + model resolution check.
+
+    Attempts a real model resolution (``models.get``) against the live key so
+    the System Health view can report which model is actually connected.
+    Fails open to ``offline``/``degraded`` without raising.
+    """
+    from core.llm.gemini_client import GeminiClient, is_rate_limited
+
     configured = bool(os.environ.get("GEMINI_API_KEY"))
-    return jsonify({
-        "status": "online" if configured else "offline",
-        "configured": configured
-    })
+    if not configured:
+        return jsonify({
+            "status": "offline",
+            "configured": False,
+            "model": None,
+            "error": "GEMINI_API_KEY not configured",
+        })
+
+    if is_rate_limited():
+        return jsonify({
+            "status": "degraded",
+            "configured": True,
+            "model": None,
+            "error": "Gemini rate-limited; cooldown active",
+        })
+
+    try:
+        model_id = GeminiClient().model_id
+        if not model_id:
+            return jsonify({
+                "status": "degraded",
+                "configured": True,
+                "model": None,
+                "error": "Gemini client initialized but no model resolved",
+            })
+        return jsonify({
+            "status": "online",
+            "configured": True,
+            "model": model_id,
+            "error": None,
+        })
+    except Exception as exc:
+        logger.warning(f"Gemini model resolution failed: {exc}", "LLM")
+        return jsonify({
+            "status": "degraded",
+            "configured": True,
+            "model": None,
+            "error": f"Model resolution failed: {type(exc).__name__}: {exc}",
+        })
 
 
 @app.route("/api/health/db", methods=["GET"])
@@ -1980,7 +2142,7 @@ def health_sandbox():
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
     """Serves the React SPA dashboard."""
-    if _os.path.exists(_os.path.join(_static_dir, "index.html")):
+    if os.path.exists(os.path.join(_static_dir, "index.html")):
         return send_from_directory(_static_dir, "index.html")
     return jsonify({"error": "Frontend not built. Run: cd frontend && npm run build"}), 404
 
@@ -2106,7 +2268,8 @@ def github_webhook():
                 for vuln_type in findings:
                     record_feedback(vuln_type, "ACCEPTED", user_id=merged_by, display_name=merged_by)
                     logger.info(f"Auto-Feedback: {vuln_type} accepted via Merge (PR #{pr_number}) by {merged_by}", "FEEDBACK")
-                resolved = resolve_open_findings_for_pr(pr_number)
+                repo_full_name = data.get("repository", {}).get("full_name", "")
+                resolved = resolve_open_findings_for_pr(pr_number, repo_full_name)
                 if resolved:
                     logger.info(f"Resolved {resolved} open finding(s) for merged PR #{pr_number}", "WEBHOOK")
                 return jsonify({"status": "merge_feedback_processed"})
@@ -2202,8 +2365,8 @@ def api_not_found(path):
 def not_found(e):
     if request.path.startswith("/api/"):
         return jsonify({"error": "Not found"}), 404
-    index_path = _os.path.join(_static_dir, "index.html")
-    if _os.path.exists(index_path):
+    index_path = os.path.join(_static_dir, "index.html")
+    if os.path.exists(index_path):
         return send_from_directory(_static_dir, "index.html")
     return jsonify({"error": "Not found"}), 404
 
@@ -2217,10 +2380,10 @@ def internal_error(e):
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
-    if path and _os.path.exists(_os.path.join(_static_dir, path)):
+    if path and os.path.exists(os.path.join(_static_dir, path)):
         return send_from_directory(_static_dir, path)
-    index_path = _os.path.join(_static_dir, "index.html")
-    if _os.path.exists(index_path):
+    index_path = os.path.join(_static_dir, "index.html")
+    if os.path.exists(index_path):
         return send_from_directory(_static_dir, "index.html")
     return jsonify({"error": "Frontend not built. Run: cd frontend && npm run build"}), 404
 

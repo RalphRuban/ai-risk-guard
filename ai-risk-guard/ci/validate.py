@@ -6,11 +6,14 @@ Runs the sandbox validation that the App could not perform locally (Docker
 unavailable) on a GitHub-hosted Actions runner. The App dispatches pending
 jobs via ``repository_dispatch``; this harness:
 
-  fetch   — downloads each job payload from the App (secret-authenticated)
+  fetch   — downloads each job payload from the App (shared-secret + origin
+            authenticated; the payload also carries the job's per-job bearer
+            token for the results call)
   run     — executes the real ``Sandbox`` against each payload, exactly as the
             App's Stage 2 (sandbox) + Stage 5 (regression tests) do
-  report  — POSTs the runtime evidence back to the App, which re-injects it
-            into a re-analysis pass so the PR comment/check are updated
+  report  — POSTs the runtime evidence back to the App (shared secret + the
+            per-job bearer token), which re-injects it into a re-analysis pass
+            so the PR comment/check are updated
 
 The workflow that drives this lives in ``.github/workflows/ai-risk-guard-validate.yml``
 in the workflow repo and must run from the repo root (it needs ``core/``, the
@@ -178,8 +181,21 @@ def report(base_url: str, secret: str, job_ids: list[int]) -> int:
         }
         if result.get("error"):
             body["error"] = result["error"]
+        # Every captured job carries its own per-job bearer token (issued at
+        # capture time and fetched with the payload). The results endpoint
+        # rejects reports without it, so echo it back on the request.
+        headers = _auth_headers(secret)
+        payload_path = workdir / "payload.json"
+        if payload_path.exists():
+            try:
+                token = (json.loads(payload_path.read_text(encoding="utf-8"))
+                         .get("validation_token") or "")
+            except (ValueError, TypeError):
+                token = ""
+            if token:
+                headers["X-CI-Validation-Token"] = token
         url = f"{base_url}/api/ci-validation/results"
-        resp = requests.post(url, json=body, headers=_auth_headers(secret), timeout=60)
+        resp = requests.post(url, json=body, headers=headers, timeout=60)
         if resp.status_code not in (200, 201, 204):
             print(f"[ci/validate] job {job_id}: report failed ({resp.status_code}): {resp.text[:300]}", file=sys.stderr)
             continue

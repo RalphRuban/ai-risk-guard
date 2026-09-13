@@ -9,26 +9,26 @@ interface WorkstationMatrixStripProps {
 
 export const WorkstationMatrixStrip: React.FC<WorkstationMatrixStripProps> = ({ onNavigate }) => {
   const cards = [
-    { id: 'dashboard' as ViewId, code: 'VIEW-04', title: 'Enterprise Dashboard', desc: 'Real-time telemetry, risk severity doughnuts, and active PR gates.', icon: <Activity className="w-4 h-4 text-[#FF2A4B]" />, status: '128 REPOS', glow: 'threat' as const },
-    { id: 'scanner' as ViewId, code: 'VIEW-06', title: 'Live AST Scanner', desc: 'Python compiler parsing, syntax trees, and Shannon entropy analysis.', icon: <Terminal className="w-4 h-4 text-[#CBD5E1]" />, status: '240MS AVG', glow: 'cyan' as const },
-    { id: 'patch' as ViewId, code: 'VIEW-08', title: 'AST Remediation', desc: 'Deterministic NodeTransformer rules & multi-candidate patch diffs.', icon: <Wrench className="w-4 h-4 text-[#FF2A4B]" />, status: 'AUTO-REWRITE', glow: 'threat' as const },
-    { id: 'sandbox' as ViewId, code: 'VIEW-09', title: 'Hardened Sandbox', desc: 'Airgapped 128MB container isolation with zero network transport.', icon: <Box className="w-4 h-4 text-[#CBD5E1]" />, status: '0.5 CPU', glow: 'cyan' as const },
-    { id: 'policy' as ViewId, code: 'VIEW-10', title: 'Governance Gateway', desc: 'Banned sinks, mandatory sanitizers, and PR risk thresholds.', icon: <Lock className="w-4 h-4 text-[#FF2A4B]" />, status: 'GATE LOCKED', glow: 'threat' as const },
-    { id: 'status' as ViewId, code: 'VIEW-18', title: 'System Health', desc: 'Diagnostic telemetry for 6 distributed security subsystems.', icon: <Shield className="w-4 h-4 text-[#CBD5E1]" />, status: '100% HEALTHY', glow: 'cyan' as const },
+    { id: 'dashboard' as ViewId, code: 'VIEW-04', title: 'Enterprise Dashboard', desc: 'Real-time telemetry, risk severity doughnuts, and active PR gates.', icon: <Activity className="w-4 h-4 text-[#FF1E2D]" />, status: '128 REPOS', glow: 'threat' as const },
+    { id: 'scanner' as ViewId, code: 'VIEW-06', title: 'Live AST Scanner', desc: 'Python compiler parsing, syntax trees, and Shannon entropy analysis.', icon: <Terminal className="w-4 h-4 text-[#D9E1EA]" />, status: '240MS AVG', glow: 'cyan' as const },
+    { id: 'patch' as ViewId, code: 'VIEW-08', title: 'AST Remediation', desc: 'Deterministic NodeTransformer rules & multi-candidate patch diffs.', icon: <Wrench className="w-4 h-4 text-[#FF1E2D]" />, status: 'AUTO-REWRITE', glow: 'threat' as const },
+    { id: 'sandbox' as ViewId, code: 'VIEW-09', title: 'Hardened Sandbox', desc: 'Airgapped 128MB container isolation with zero network transport.', icon: <Box className="w-4 h-4 text-[#D9E1EA]" />, status: '0.5 CPU', glow: 'cyan' as const },
+    { id: 'policy' as ViewId, code: 'VIEW-10', title: 'Governance Gateway', desc: 'Banned sinks, mandatory sanitizers, and PR risk thresholds.', icon: <Lock className="w-4 h-4 text-[#FF1E2D]" />, status: 'GATE LOCKED', glow: 'threat' as const },
+    { id: 'status' as ViewId, code: 'VIEW-18', title: 'System Health', desc: 'Diagnostic telemetry for 6 distributed security subsystems.', icon: <Shield className="w-4 h-4 text-[#D9E1EA]" />, status: '100% HEALTHY', glow: 'cyan' as const },
   ];
 
   return (
     <section className="relative pt-20 pb-16 px-4 sm:px-8 xl:px-12 max-w-[1760px] mx-auto space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b-2 border-[#184384]/60 font-mono text-xs gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b-2 border-[#17406E]/60 font-mono text-xs gap-3">
         <div className="flex items-center space-x-3">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#FF2A4B] animate-ping" />
-          <span className="text-[#F8FAFC] text-sm sm:text-base tracking-widest uppercase font-headline font-bold">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#FF1E2D] animate-ping" />
+          <span className="text-[#EAF1F8] text-sm sm:text-base tracking-widest uppercase font-headline font-bold">
             OPERATIONAL WORKSTATIONS // FLOATING MATRIX
           </span>
         </div>
-        <div className="flex items-center space-x-3 text-[11px] text-[#94A3B8]">
+        <div className="flex items-center space-x-3 text-[11px] text-[#A7B4C4]">
           <span>SECURITY CHASSIS // ALL 18 VIEWPORTS ACTIVE</span>
-          <span className="px-2 py-0.5 rounded bg-[#0B2556] border border-[#CBD5E1]/30 text-[#CBD5E1] font-bold">AIRGAP MESH</span>
+          <span className="px-2 py-0.5 rounded bg-[#0B2A5E] border border-[#D9E1EA]/30 text-[#D9E1EA] font-bold">AIRGAP MESH</span>
         </div>
       </div>
 
@@ -44,24 +44,24 @@ export const WorkstationMatrixStrip: React.FC<WorkstationMatrixStripProps> = ({ 
             <div className="p-5 space-y-3">
               <div className="flex items-center justify-between font-mono text-xs">
                 <div className="flex items-center space-x-2">
-                  <div className="p-1.5 rounded bg-[#030C22] border border-[#184384]">
+                  <div className="p-1.5 rounded bg-[#050B16] border border-[#17406E]">
                     {card.icon}
                   </div>
-                  <span className="text-[#CBD5E1] text-[11px] tracking-widest font-bold">{card.code}</span>
+                  <span className="text-[#D9E1EA] text-[11px] tracking-widest font-bold">{card.code}</span>
                 </div>
-                <span className="text-[10px] text-[#F8FAFC] px-2 py-0.5 rounded bg-[#061533] border border-[#CBD5E1]/30 shadow-[0_0_10px_rgba(203,213,225,0.1)]">
+                <span className="text-[10px] text-[#EAF1F8] px-2 py-0.5 rounded bg-[#071A2E] border border-[#D9E1EA]/30 shadow-[0_0_10px_rgba(217,225,234,0.1)]">
                   {card.status}
                 </span>
               </div>
 
               <div className="flex items-center justify-between pt-1">
-                <h3 className="font-headline font-bold text-sm tracking-wide text-white group-hover:text-[#FF2A4B] transition-colors">
+                <h3 className="font-headline font-bold text-sm tracking-wide text-white group-hover:text-[#FF1E2D] transition-colors">
                   {card.title}
                 </h3>
-                <ArrowUpRight className="w-4 h-4 text-[#94A3B8] group-hover:text-[#FF2A4B] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+                <ArrowUpRight className="w-4 h-4 text-[#A7B4C4] group-hover:text-[#FF1E2D] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
               </div>
 
-              <p className="font-mono text-[11px] text-[#94A3B8] leading-relaxed line-clamp-2">
+              <p className="font-mono text-[11px] text-[#A7B4C4] leading-relaxed line-clamp-2">
                 {card.desc}
               </p>
             </div>

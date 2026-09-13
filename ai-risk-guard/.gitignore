@@ -41,3 +41,7 @@ Thumbs.db
 Plan.md
 Deploy_Plan.md
 AGENTS.md
+
+# 6. Source Design Assets (processed PNGs live in frontend/public/aurex-logo.png
+# and frontend/public/favicon.png; tools/make_aurex_logo.py regenerates them)
+Aurex Logo.png

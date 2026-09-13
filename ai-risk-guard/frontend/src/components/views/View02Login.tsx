@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Github, Shield, Lock, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Github, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { getMe } from '../../api/client';
 import { CyberButton } from '../common/CyberButton';
 import { TacticalBracket } from '../common/TacticalBracket';
@@ -36,7 +36,9 @@ export const View02Login: React.FC<View02LoginProps> = ({ onLoginSuccess, onNavi
           onLoginSuccess();
         }
       })
-      .catch(() => undefined)
+      .catch(() => {
+        setAuthError('Unable to reach the backend service. Please try again shortly.');
+      })
       .finally(() => setInitializing(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -47,56 +49,56 @@ export const View02Login: React.FC<View02LoginProps> = ({ onLoginSuccess, onNavi
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center px-4 py-12">
-      <div className="relative w-full max-w-lg bg-[#030914] border border-[#1E3C5C] p-6 sm:p-10 shadow-[0_0_50px_rgba(8,123,255,0.2)]">
-        <TacticalBracket color="#00CFFF" size="lg" />
+      <div className="relative w-full max-w-lg bg-[#050B16] border border-[#17406E] p-6 sm:p-10 shadow-[0_0_50px_rgba(0,123,255,0.2)]">
+        <TacticalBracket color="#00A8FF" size="lg" />
 
         {/* Top Header */}
         <div className="text-center space-y-3 mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-[#087BFF]/20 border border-[#00CFFF]/60 rounded-sm mb-2">
-            <Github className="w-7 h-7 text-[#00CFFF]" />
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-[#007BFF]/20 border border-[#00A8FF]/60 rounded-sm mb-2">
+            <Github className="w-7 h-7 text-[#00A8FF]" />
           </div>
-          <div className="font-mono text-[10px] text-[#00CFFF] tracking-widest">
+          <div className="font-mono text-[10px] text-[#00A8FF] tracking-widest">
             SECURITY PROTOCOL: ARG-OAUTH-GATE
           </div>
           <h2 className="font-headline font-black text-2xl sm:text-3xl text-white">
             GitHub Operator Gateway
           </h2>
-          <p className="font-mono text-xs text-[#8D9AAA] max-w-md mx-auto">
+          <p className="font-mono text-xs text-[#9AA7B8] max-w-md mx-auto">
             Authorize enterprise security operator clearance via single-provider GitHub OAuth token clearance.
           </p>
         </div>
 
         {/* Operator Preset Input */}
         <div className="space-y-4 mb-8">
-          <div className="p-3 bg-[#06101F] border border-[#1E3C5C] space-y-1.5 font-mono text-xs">
-            <span className="text-[#8D9AAA] text-[10px] block">OPERATOR IDENTITY HANDLE</span>
+          <div className="p-3 bg-[#050B16] border border-[#17406E] space-y-1.5 font-mono text-xs">
+            <span className="text-[#9AA7B8] text-[10px] block">OPERATOR IDENTITY HANDLE</span>
             <div className="flex items-center space-x-2 text-white font-semibold">
-              <span className="text-[#00CFFF]">@</span>
-              <span className="bg-transparent text-[#F1F5F9] w-full font-mono">your-github-username</span>
+              <span className="text-[#00A8FF]">@</span>
+              <span className="bg-transparent text-[#E4EBF3] w-full font-mono">your-github-username</span>
             </div>
           </div>
 
           {/* Requested Scopes */}
-          <div className="p-3 bg-[#02050B] border border-[#1E3C5C] font-mono text-[11px] text-[#8D9AAA] space-y-2">
+          <div className="p-3 bg-[#020B1A] border border-[#17406E] font-mono text-[11px] text-[#9AA7B8] space-y-2">
             <div className="text-white font-semibold flex items-center justify-between">
               <span>REQUESTED PERMISSIONS MANIFEST</span>
               <span className="text-[#00E699] text-[10px]">READ/WRITE</span>
             </div>
             <ul className="space-y-1 text-[10px]">
               <li className="flex items-center space-x-2">
-                <CheckCircle2 className="w-3 h-3 text-[#00CFFF]" />
+                <CheckCircle2 className="w-3 h-3 text-[#00A8FF]" />
                 <span>Pull Request Scanning & AST Comment Ingestion</span>
               </li>
               <li className="flex items-center space-x-2">
-                <CheckCircle2 className="w-3 h-3 text-[#00CFFF]" />
+                <CheckCircle2 className="w-3 h-3 text-[#00A8FF]" />
                 <span>Automated NodeTransformer Patch Commits</span>
               </li>
               <li className="flex items-center space-x-2">
-                <CheckCircle2 className="w-3 h-3 text-[#00CFFF]" />
+                <CheckCircle2 className="w-3 h-3 text-[#00A8FF]" />
                 <span>Hardened Docker Sandbox Webhook Dispatch</span>
               </li>
               <li className="flex items-center space-x-2">
-                <CheckCircle2 className="w-3 h-3 text-[#00CFFF]" />
+                <CheckCircle2 className="w-3 h-3 text-[#00A8FF]" />
                 <span>Enterprise Security Gate Enforcement</span>
               </li>
             </ul>
@@ -117,7 +119,7 @@ export const View02Login: React.FC<View02LoginProps> = ({ onLoginSuccess, onNavi
           </CyberButton>
 
           {authError && (
-            <div className="p-3 bg-[#8F1424]/20 border border-[#FF304F] text-[#FF304F] font-mono text-[11px] leading-relaxed">
+            <div className="p-3 bg-[#7E1120]/20 border border-[#FF1E2D] text-[#FF1E2D] font-mono text-[11px] leading-relaxed">
               {authError}
             </div>
           )}
@@ -133,7 +135,7 @@ export const View02Login: React.FC<View02LoginProps> = ({ onLoginSuccess, onNavi
           </CyberButton>
         </div>
 
-        <div className="mt-6 text-center font-mono text-[10px] text-[#8D9AAA]">
+        <div className="mt-6 text-center font-mono text-[10px] text-[#9AA7B8]">
           RESTRICTED TO REPOSITORY COLLABORATORS WITH SECOPS PRIVILEGES
         </div>
       </div>

@@ -9,7 +9,7 @@ interface TacticalBracketProps {
 export const TacticalBracket: React.FC<TacticalBracketProps> = ({
   className = '',
   size = 'md',
-  color = '#CBD5E1'
+  color = '#D9E1EA'
 }) => {
   const sizeMap = {
     sm: 'w-2 h-2',

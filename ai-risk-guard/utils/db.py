@@ -7,6 +7,7 @@ Replaces the in-memory analysis_data dict in main.py.
 import json
 import logging
 import os
+import secrets
 import sqlite3
 from pathlib import Path
 
@@ -15,7 +16,7 @@ log = logging.getLogger("ai_risk_guard.db")
 # Migration ledger: bumped whenever init_db() lands a new schema change. Set on
 # the DB as PRAGMA user_version after a fully successful init so a partially
 # migrated database is caught on the next boot.
-DB_SCHEMA_VERSION = 1
+DB_SCHEMA_VERSION = 2
 
 # Resolve the DB path against the repo root so the app works no matter which
 # working directory it is launched from (systemd, cron, tests, WSGI). Absolute
@@ -147,6 +148,23 @@ def _migrate_validation_status():
         if "validation_status" not in cols:
             conn.execute(
                 "ALTER TABLE scans ADD COLUMN validation_status TEXT DEFAULT 'ok'"
+            )
+            conn.commit()
+
+
+def _migrate_ci_token():
+    """Add ``validation_token`` to pending_validations (per-job CI bearer).
+
+    Each captured job gets a fresh random token; the CI runner reads it from
+    the GET payload and must present it when posting results. Older queued
+    rows keep an empty token (grandfathered) and are still protected by the
+    shared secret. Idempotent under repeated boots.
+    """
+    with _connect() as conn:
+        cols = [row["name"] for row in conn.execute("PRAGMA table_info(pending_validations)").fetchall()]
+        if "validation_token" not in cols:
+            conn.execute(
+                "ALTER TABLE pending_validations ADD COLUMN validation_token TEXT DEFAULT ''"
             )
             conn.commit()
 
@@ -448,6 +466,8 @@ def init_db():
     _migrate_fk_constraints()
     # Idempotent schema upgrade: validation_status column for deferred re-validation.
     _migrate_validation_status()
+    # Idempotent schema upgrade: per-job validation_token for CI fetch/results.
+    _migrate_ci_token()
 # Query-planning indexes for the most frequent access patterns.
     _create_indexes()
     # Ledger: all idempotent migrations succeeded, so record the schema version.
@@ -1234,21 +1254,25 @@ def record_pending_validation(
 ) -> int:
     """Persist a candidate awaiting CI-runner validation (idempotent).
 
-    The UNIQUE key on (repo_full_name, commit_sha, source_filename,
-    candidate_id) means repeated failed-closed captures of the same candidate
-    never create duplicates. Returns the row id.
+    All rows get a fresh per-job ``validation_token`` (required when the runner
+    posts results back). The UNIQUE key on (repo_full_name, commit_sha,
+    source_filename, candidate_id) means repeated failed-closed captures of the
+    same candidate never create duplicates. Returns the row id.
     """
+    token = secrets.token_urlsafe(32)
     with _connect() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO pending_validations (
                 repo_full_name, pr_number, commit_sha, source_filename, candidate_id,
-                patched_code, test_filename, test_content, extra_files, scan_mode, sandbox_network
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                patched_code, test_filename, test_content, extra_files, scan_mode,
+                sandbox_network, validation_token
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             repo_full_name, pr_number, commit_sha, source_filename, candidate_id,
             patched_code, test_filename, test_content,
             json.dumps(extra_files or [], ensure_ascii=False),
             scan_mode, sandbox_network,
+            token,
         ))
         conn.commit()
         row = conn.execute("""
@@ -1293,10 +1317,12 @@ def update_pending_validation_status(job_id: int, status: str):
 
 
 def complete_pending_validation(job_id: int, result_json: str, status: str = "completed"):
-    """Store a CI-runner validation result and mark the job completed."""
+    """Store a CI-runner validation result, mark the job completed, and
+    invalidate the per-job token so a completed job cannot be replayed."""
     with _connect() as conn:
         conn.execute(
-            "UPDATE pending_validations SET status = ?, result_json = ?, updated_at = datetime('now') WHERE id = ?",
+            "UPDATE pending_validations SET status = ?, result_json = ?, "
+            "validation_token = '', updated_at = datetime('now') WHERE id = ?",
             (status, result_json, job_id),
         )
         conn.commit()
@@ -1495,15 +1521,30 @@ def finding_belongs_to_user(finding_id: int, github_id: int) -> bool:
     return row is not None
 
 
-def resolve_open_findings_for_pr(pr_number: int) -> int:
-    """Mark open findings for a PR as resolved (e.g. when it merges)."""
+def resolve_open_findings_for_pr(pr_number: int, repo_full_name: str | None = None) -> int:
+    """Mark open findings for a PR as resolved (e.g. when it merges).
+
+    PR numbers are only unique within a repository, so callers acting on a
+    webhook should pass ``repo_full_name`` to avoid resolving findings from an
+    unrelated repo that happens to reuse the same PR number. When omitted the
+    legacy PR-number-only behaviour is preserved for internal callers.
+    """
+    sql = """
+        UPDATE findings
+        SET status = 'resolved'
+        WHERE status = 'open'
+          AND scan_id IN (
+              SELECT s.id FROM scans s
+              WHERE s.pr_number = ?
+    """
+    params: list = [pr_number]
+    if repo_full_name:
+        sql += " AND s.repo_id = (SELECT id FROM repos WHERE full_name = ?)"
+        params.append(repo_full_name)
+    sql += ")"
+
     with _connect() as conn:
-        cur = conn.execute("""
-            UPDATE findings
-            SET status = 'resolved'
-            WHERE status = 'open'
-              AND scan_id IN (SELECT id FROM scans WHERE pr_number = ?)
-        """, (pr_number,))
+        cur = conn.execute(sql, params)
         conn.commit()
         return cur.rowcount
 

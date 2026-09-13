@@ -57,7 +57,10 @@ class TestOrchestrator:
         # Stress test logic: detection -> patching -> validation -> risk
         path = write_temp_file('import os\nos.system("ls")')
         try:
-            results = self.orchestrator.analyze_file(path)
+            # No Docker in CI/test env: neutralize the sandbox's Docker
+            # availability retry backoff so the pipeline fails closed fast.
+            with patch("core.validator.sandbox.time.sleep"):
+                results = self.orchestrator.analyze_file(path)
             if results: # Depends on environment (e.g. if Docker is running)
                 assert len(results) > 0
                 assert results[0]["vulnerability"]["type"] == "COMMAND_INJECTION"
@@ -260,7 +263,10 @@ class TestSilentAlerts:
         path = write_temp_file("import requests\nrequests.get('https://internal.api/users', verify=False)")
         try:
             engine = AIRiskGuard()
-            results = engine.analyze_file(path)
+            # No Docker in CI/test env: neutralize the sandbox's Docker
+            # availability retry backoff so the pipeline fails closed fast.
+            with patch("core.validator.sandbox.time.sleep"):
+                results = engine.analyze_file(path)
         finally:
             os.unlink(path)
         tls = [r for r in results if r["vulnerability"]["type"] == "TLS_VERIFICATION_DISABLED"]

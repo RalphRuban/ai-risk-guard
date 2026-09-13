@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId, SubsystemHealth } from '../../types';
-import { Activity, Cpu, CheckCircle2, Shield, RefreshCw, Terminal, Server } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { getHealthReady, getHealthDb, getHealthGemini, getSandboxHealth } from '../../api/client';
 
 const BASE_SUBSYSTEMS: SubsystemHealth[] = [
@@ -12,6 +12,7 @@ const BASE_SUBSYSTEMS: SubsystemHealth[] = [
   { id: 'sandbox', name: 'SANDBOX VALIDATOR', status: 'HEALTHY', latency: '—', version: 'Docker', uptime: '—', details: 'Docker container pool with CPU/RAM quotas and read-only rootfs.' },
   { id: 'store', name: 'PERSISTENCE STORE', status: 'HEALTHY', latency: '—', version: 'SQLite WAL', uptime: '—', details: 'SQLite Write-Ahead Log database storing scans, findings, and audit logs.' },
   { id: 'core', name: 'DEFENSE CORE', status: 'HEALTHY', latency: '—', version: 'v2.4.0', uptime: '—', details: 'Continuous protection loop and GitHub App integration.' },
+  { id: 'llm', name: 'LLM ENGINE // GEMINI', status: 'HEALTHY', latency: '—', version: '—', uptime: '—', details: 'Model fallback chain resolution via Gemini API.' },
 ];
 
 export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
@@ -41,10 +42,14 @@ export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
 
     try {
       const gemini = await getHealthGemini();
-      updated[1].status = gemini.status === 'online' ? 'OPTIMAL' : 'HEALTHY';
-      updated[5].details = `Gemini: ${gemini.configured ? 'configured' : 'not configured'}`;
+      updated[6].details = gemini.configured
+        ? `Gemini ${gemini.model ? `model: ${gemini.model}` : 'configured'}.${gemini.error ? ` ${gemini.error}` : ''}`
+        : 'Gemini not configured — LLM analysis disabled.';
+      updated[6].status = gemini.status === 'online' ? 'OPTIMAL' : gemini.status === 'degraded' ? 'DEGRADED' : 'OFFLINE';
+      if (gemini.model) updated[6].version = gemini.model;
     } catch {
-      updated[5].status = 'DEGRADED';
+      updated[6].status = 'DEGRADED';
+      updated[6].details = 'Gemini health probe failed.';
     }
 
     try {
@@ -68,12 +73,12 @@ export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
   }, []);
 
   return (
-    <div className="py-8 px-4 sm:px-6 max-w-7xl mx-auto space-y-6">
+    <div className="py-8 px-4 sm:px-6 max-w-[1780px] mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#1E3C5C]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#17406E]">
         <div>
-          <div className="flex items-center space-x-2 font-mono text-[10px] text-[#00CFFF] tracking-widest mb-1">
-            <span>RUNTIME DIAGNOSTICS // 6 CORE SUBSYSTEMS</span>
+          <div className="flex items-center space-x-2 font-mono text-[10px] tracking-widest mb-1 bg-gradient-to-r from-[#F0F5FA] via-[#D9E1EA] to-[#A7B4C4] bg-clip-text text-transparent">
+            <span>RUNTIME DIAGNOSTICS // 7 SUBSYSTEMS</span>
           </div>
           <h1 className="font-headline font-bold text-2xl sm:text-3xl text-white">
             System Health & Runtime Telemetry
@@ -81,7 +86,7 @@ export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
         </div>
 
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#06101F] border border-[#00E699]/60 font-mono text-xs text-[#00E699]">
+          <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#050B16] border border-[#00E699]/60 font-mono text-xs text-[#00E699]">
             <span className="w-2 h-2 rounded-full bg-[#00E699] animate-pulse" />
             <span>{loading ? 'POLLING SUBSYSTEMS...' : allOperational ? 'ALL SUBSYSTEMS OPERATIONAL' : 'SUBSYSTEM DEGRADATION DETECTED'}</span>
           </div>
@@ -106,7 +111,7 @@ export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
         </div>
       </div>
 
-      {/* Subsystems Cards Grid (6 Cards) */}
+      {/* Subsystems Cards Grid (7 Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {(loading ? BASE_SUBSYSTEMS : subsystems).map((sub) => (
           <GlassPanel
@@ -118,16 +123,24 @@ export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
           >
             <div className="space-y-3 font-mono text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[#8D9AAA]">STATUS:</span>
-                <span className="px-2 py-0.5 bg-[#00E699]/20 border border-[#00E699] text-[#00E699] font-bold text-[10px]">
+                <span className="text-[#9AA7B8]">STATUS:</span>
+                <span
+                  className={`px-2 py-0.5 font-bold text-[10px] border ${
+                    sub.status === 'OFFLINE'
+                      ? 'bg-[#FF1E2D]/15 border-[#FF1E2D] text-[#FF1E2D]'
+                      : sub.status === 'DEGRADED'
+                      ? 'bg-[#D9E1EA]/15 border-[#D9E1EA] text-[#EAF1F8] shadow-[0_0_8px_rgba(217,225,234,0.2)]'
+                      : 'bg-[#00E699]/20 border-[#00E699] text-[#00E699]'
+                  }`}
+                >
                   {sub.status}
                 </span>
               </div>
 
-              <div className="p-2.5 bg-[#02050B] border border-[#1E3C5C] space-y-1.5 text-[11px] text-[#8D9AAA]">
+              <div className="p-2.5 bg-[#020B1A] border border-[#17406E] space-y-1.5 text-[11px] text-[#9AA7B8]">
                 <div className="flex justify-between">
                   <span>PING:</span>
-                  <span className="text-[#00CFFF] font-bold">{sub.latency}</span>
+                  <span className="text-[#00A8FF] font-bold">{sub.latency}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>VERSION:</span>
@@ -135,7 +148,7 @@ export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
                 </div>
               </div>
 
-              <p className="text-[11px] text-[#B8C2CE] leading-relaxed pt-1">
+              <p className="text-[11px] text-[#C2CDD9] leading-relaxed pt-1">
                 {sub.details}
               </p>
             </div>

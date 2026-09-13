@@ -29,8 +29,13 @@ if command -v sqlite3 >/dev/null 2>&1; then
   sqlite3 "${DB_PATH}" ".backup '${BACKUP_DIR}/${DB_NAME}.snapshot'"
 else
   python3 - "${DB_PATH}" "${BACKUP_DIR}/${DB_NAME}.snapshot" <<'PY'
-import shutil, sys
-shutil.copy2(sys.argv[1], sys.argv[2])
+import sqlite3, sys
+src = sqlite3.connect(sys.argv[1])
+dst = sqlite3.connect(sys.argv[2])
+with dst:
+    src.backup(dst)
+src.close()
+dst.close()
 PY
 fi
 

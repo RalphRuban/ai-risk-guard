@@ -3,8 +3,9 @@ core/config/app_config.py
 Pydantic v2 model for application-level configuration.
 """
 
+import re
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LlmConfig(BaseModel):
@@ -17,6 +18,26 @@ class LlmConfig(BaseModel):
         ],
         description="Ordered list of Gemini models to try (first available wins)"
     )
+    rate_limit_cooldown_seconds: float = Field(
+        30.0,
+        description="Seconds a 429 rate limit suppresses follow-up LLM calls before auto-recovery",
+        ge=1.0,
+        le=3600.0,
+    )
+
+    @field_validator("model_fallback_chain")
+    @classmethod
+    def _validate_model_chain(cls, chain: list[str]) -> list[str]:
+        if not chain:
+            raise ValueError("model_fallback_chain must not be empty")
+        for model in chain:
+            if (
+                not isinstance(model, str)
+                or not model.strip()
+                or re.fullmatch(r"[A-Za-z0-9._/-]+", model) is None
+            ):
+                raise ValueError(f"invalid Gemini model id: {model!r}")
+        return chain
 
 
 class ServerConfig(BaseModel):

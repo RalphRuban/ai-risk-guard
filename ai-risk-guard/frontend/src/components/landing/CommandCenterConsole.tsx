@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId } from '../../types';
-import { Terminal, Shield, Play, Wrench, Box, Cpu, ArrowRight, CheckCircle2, Lock, Sliders } from 'lucide-react';
+import { Terminal, Shield, Play, Wrench, Box, ArrowRight } from 'lucide-react';
 import { TacticalBracket } from '../common/TacticalBracket';
 
 interface CommandCenterConsoleProps {
@@ -73,43 +72,43 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
 
   return (
     <section className="relative py-20 px-4 sm:px-8 xl:px-12 max-w-[1760px] mx-auto space-y-6">
-      <div className="relative p-6 sm:p-10 rounded-xl bg-gradient-to-br from-[#0B2556]/85 via-[#061533]/92 to-[#020716]/98 backdrop-blur-2xl border-2 border-[#184384] shadow-[0_25px_70px_rgba(2,7,22,0.95),inset_0_1px_0_rgba(203,213,225,0.2)]">
+      <div className="relative p-6 sm:p-10 rounded-xl bg-gradient-to-br from-[#0B2A5E]/85 via-[#071A2E]/92 to-[#020B1A]/98 backdrop-blur-2xl border-2 border-[#17406E] shadow-[0_25px_70px_rgba(2,11,26,0.95),inset_0_1px_0_rgba(217,225,234,0.2)]">
         {/* 4 Corner Hex Bolts */}
-        <div className="absolute top-3 left-3 w-3 h-3 rounded-full bg-[#CBD5E1] p-[1px] shadow-[0_0_6px_rgba(203,213,225,0.6)] z-20 pointer-events-none">
-          <div className="w-full h-full rounded-full bg-[#030C22] flex items-center justify-center">
-            <span className="w-1.5 h-[1px] bg-[#CBD5E1] block transform rotate-45" />
+        <div className="absolute top-3 left-3 w-3 h-3 rounded-full bg-[#D9E1EA] p-[1px] shadow-[0_0_6px_rgba(217,225,234,0.6)] z-20 pointer-events-none">
+          <div className="w-full h-full rounded-full bg-[#050B16] flex items-center justify-center">
+            <span className="w-1.5 h-[1px] bg-[#D9E1EA] block transform rotate-45" />
           </div>
         </div>
-        <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-[#CBD5E1] p-[1px] shadow-[0_0_6px_rgba(203,213,225,0.6)] z-20 pointer-events-none">
-          <div className="w-full h-full rounded-full bg-[#030C22] flex items-center justify-center">
-            <span className="w-1.5 h-[1px] bg-[#CBD5E1] block transform -rotate-45" />
+        <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-[#D9E1EA] p-[1px] shadow-[0_0_6px_rgba(217,225,234,0.6)] z-20 pointer-events-none">
+          <div className="w-full h-full rounded-full bg-[#050B16] flex items-center justify-center">
+            <span className="w-1.5 h-[1px] bg-[#D9E1EA] block transform -rotate-45" />
           </div>
         </div>
-        <div className="absolute bottom-3 left-3 w-3 h-3 rounded-full bg-[#CBD5E1] p-[1px] shadow-[0_0_6px_rgba(203,213,225,0.6)] z-20 pointer-events-none">
-          <div className="w-full h-full rounded-full bg-[#030C22] flex items-center justify-center">
-            <span className="w-1.5 h-[1px] bg-[#CBD5E1] block transform -rotate-12" />
+        <div className="absolute bottom-3 left-3 w-3 h-3 rounded-full bg-[#D9E1EA] p-[1px] shadow-[0_0_6px_rgba(217,225,234,0.6)] z-20 pointer-events-none">
+          <div className="w-full h-full rounded-full bg-[#050B16] flex items-center justify-center">
+            <span className="w-1.5 h-[1px] bg-[#D9E1EA] block transform -rotate-12" />
           </div>
         </div>
-        <div className="absolute bottom-3 right-3 w-3 h-3 rounded-full bg-[#CBD5E1] p-[1px] shadow-[0_0_6px_rgba(203,213,225,0.6)] z-20 pointer-events-none">
-          <div className="w-full h-full rounded-full bg-[#030C22] flex items-center justify-center">
-            <span className="w-1.5 h-[1px] bg-[#CBD5E1] block transform rotate-30" />
+        <div className="absolute bottom-3 right-3 w-3 h-3 rounded-full bg-[#D9E1EA] p-[1px] shadow-[0_0_6px_rgba(217,225,234,0.6)] z-20 pointer-events-none">
+          <div className="w-full h-full rounded-full bg-[#050B16] flex items-center justify-center">
+            <span className="w-1.5 h-[1px] bg-[#D9E1EA] block transform rotate-30" />
           </div>
         </div>
 
-        <TacticalBracket color="#CBD5E1" size="lg" />
+        <TacticalBracket color="#D9E1EA" size="lg" />
 
         {/* Tab Header Navigation (80% Navy, 10% Silver, 10% Red) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b-2 border-[#184384]/60">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b-2 border-[#17406E]/60">
           <div className="flex items-center space-x-2 font-mono text-xs overflow-x-auto">
             <button
               onClick={() => setActiveTab('SCANNER')}
               className={`px-3 py-2 border transition-all flex items-center space-x-1.5 ${
                 activeTab === 'SCANNER'
-                  ? 'bg-[#FF2A4B]/20 border-[#FF2A4B] text-[#FF2A4B] font-semibold shadow-[0_0_15px_rgba(255,42,75,0.25)]'
-                  : 'bg-[#030C22] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'
+                  ? 'bg-[#FF1E2D]/20 border-[#FF1E2D] text-[#FF1E2D] font-semibold shadow-[0_0_15px_rgba(255,30,45,0.25)]'
+                  : 'bg-[#050B16] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'
               }`}
             >
-              <Terminal className="w-3.5 h-3.5 text-[#CBD5E1]" />
+              <Terminal className="w-3.5 h-3.5 text-[#D9E1EA]" />
               <span>[01] AST SCANNER</span>
             </button>
 
@@ -117,11 +116,11 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
               onClick={() => setActiveTab('DIFF')}
               className={`px-3 py-2 border transition-all flex items-center space-x-1.5 ${
                 activeTab === 'DIFF'
-                  ? 'bg-[#FF2A4B]/20 border-[#FF2A4B] text-[#FF2A4B] font-semibold shadow-[0_0_15px_rgba(255,42,75,0.25)]'
-                  : 'bg-[#030C22] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'
+                  ? 'bg-[#FF1E2D]/20 border-[#FF1E2D] text-[#FF1E2D] font-semibold shadow-[0_0_15px_rgba(255,30,45,0.25)]'
+                  : 'bg-[#050B16] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'
               }`}
             >
-              <Wrench className="w-3.5 h-3.5 text-[#CBD5E1]" />
+              <Wrench className="w-3.5 h-3.5 text-[#D9E1EA]" />
               <span>[02] NodeTransformer DIFF</span>
             </button>
 
@@ -129,11 +128,11 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
               onClick={() => setActiveTab('SANDBOX')}
               className={`px-3 py-2 border transition-all flex items-center space-x-1.5 ${
                 activeTab === 'SANDBOX'
-                  ? 'bg-[#FF2A4B]/20 border-[#FF2A4B] text-[#FF2A4B] font-semibold shadow-[0_0_15px_rgba(255,42,75,0.25)]'
-                  : 'bg-[#030C22] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'
+                  ? 'bg-[#FF1E2D]/20 border-[#FF1E2D] text-[#FF1E2D] font-semibold shadow-[0_0_15px_rgba(255,30,45,0.25)]'
+                  : 'bg-[#050B16] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'
               }`}
             >
-              <Box className="w-3.5 h-3.5 text-[#CBD5E1]" />
+              <Box className="w-3.5 h-3.5 text-[#D9E1EA]" />
               <span>[03] HARDENED SANDBOX</span>
             </button>
 
@@ -141,11 +140,11 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
               onClick={() => setActiveTab('POLICY')}
               className={`px-3 py-2 border transition-all flex items-center space-x-1.5 ${
                 activeTab === 'POLICY'
-                  ? 'bg-[#FF2A4B]/20 border-[#FF2A4B] text-[#FF2A4B] font-semibold shadow-[0_0_15px_rgba(255,42,75,0.25)]'
-                  : 'bg-[#030C22] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'
+                  ? 'bg-[#FF1E2D]/20 border-[#FF1E2D] text-[#FF1E2D] font-semibold shadow-[0_0_15px_rgba(255,30,45,0.25)]'
+                  : 'bg-[#050B16] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'
               }`}
             >
-              <Shield className="w-3.5 h-3.5 text-[#CBD5E1]" />
+              <Shield className="w-3.5 h-3.5 text-[#D9E1EA]" />
               <span>[04] POLICY GATE</span>
             </button>
           </div>
@@ -154,7 +153,7 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
             variant="outline"
             size="sm"
             onClick={() => onNavigate(activeTab === 'SCANNER' ? 'scanner' : activeTab === 'DIFF' ? 'patch' : activeTab === 'SANDBOX' ? 'sandbox' : 'policy')}
-            icon={<ArrowRight className="w-3.5 h-3.5 text-[#CBD5E1]" />}
+            icon={<ArrowRight className="w-3.5 h-3.5 text-[#D9E1EA]" />}
           >
             EXPAND WORKSTATION
           </CyberButton>
@@ -165,22 +164,22 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
           <div className="pt-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
               <div className="flex items-center space-x-2">
-                <span className="text-[#94A3B8] text-[11px]">BENCHMARK:</span>
+                <span className="text-[#A7B4C4] text-[11px]">BENCHMARK:</span>
                 <button
                   onClick={() => { setSample('CMD_INJECTION'); }}
-                  className={`px-2.5 py-1 border text-[11px] transition-all ${sample === 'CMD_INJECTION' ? 'bg-[#FF2A4B]/20 border-[#FF2A4B] text-[#FF2A4B] font-semibold' : 'bg-[#030C22] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'}`}
+                  className={`px-2.5 py-1 border text-[11px] transition-all ${sample === 'CMD_INJECTION' ? 'bg-[#FF1E2D]/20 border-[#FF1E2D] text-[#FF1E2D] font-semibold' : 'bg-[#050B16] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'}`}
                 >
                   Command Injection (CWE-78)
                 </button>
                 <button
                   onClick={() => { setSample('CODE_INJECTION'); }}
-                  className={`px-2.5 py-1 border text-[11px] transition-all ${sample === 'CODE_INJECTION' ? 'bg-[#FF2A4B]/20 border-[#FF2A4B] text-[#FF2A4B] font-semibold' : 'bg-[#030C22] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'}`}
+                  className={`px-2.5 py-1 border text-[11px] transition-all ${sample === 'CODE_INJECTION' ? 'bg-[#FF1E2D]/20 border-[#FF1E2D] text-[#FF1E2D] font-semibold' : 'bg-[#050B16] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'}`}
                 >
                   Code Injection (CWE-94)
                 </button>
                 <button
                   onClick={() => { setSample('CLEAN'); }}
-                  className={`px-2.5 py-1 border text-[11px] transition-all ${sample === 'CLEAN' ? 'bg-[#CBD5E1]/20 border-[#CBD5E1] text-[#F8FAFC] font-semibold' : 'bg-[#030C22] border-[#184384] text-[#94A3B8] hover:text-[#E2E8F0]'}`}
+                  className={`px-2.5 py-1 border text-[11px] transition-all ${sample === 'CLEAN' ? 'bg-[#D9E1EA]/20 border-[#D9E1EA] text-[#EAF1F8] font-semibold' : 'bg-[#050B16] border-[#17406E] text-[#A7B4C4] hover:text-[#DEE7F0]'}`}
                 >
                   Clean Code
                 </button>
@@ -199,67 +198,67 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 font-mono text-xs">
               {/* Code Panel (80% Navy, 10% Red Sink, 10% Silver text) */}
-              <div className="lg:col-span-7 p-4 bg-[#020716] border border-[#184384] space-y-1.5 min-h-[220px]">
-                <div className="text-[#94A3B8] text-[10px] pb-1 border-b border-[#184384]">INPUT CODE BUFFER</div>
+              <div className="lg:col-span-7 p-4 bg-[#020B1A] border border-[#17406E] space-y-1.5 min-h-[220px]">
+                <div className="text-[#A7B4C4] text-[10px] pb-1 border-b border-[#17406E]">INPUT CODE BUFFER</div>
                 {sample === 'CMD_INJECTION' && (
                   <>
-                    <div><span className="text-[#CBD5E1]">import</span> os, sys</div>
-                    <div><span className="text-[#CBD5E1]">def</span> <span className="text-[#F8FAFC]">execute_backup</span>(target):</div>
-                    <div className="pl-4 text-[#94A3B8]"># Insecure subshell call</div>
-                    <div className="pl-4 p-1.5 bg-[#991B1B]/35 border-l-2 border-[#FF2A4B] text-[#FF2A4B] font-bold">
+                    <div><span className="text-[#D9E1EA]">import</span> os, sys</div>
+                    <div><span className="text-[#D9E1EA]">def</span> <span className="text-[#EAF1F8]">execute_backup</span>(target):</div>
+                    <div className="pl-4 text-[#A7B4C4]"># Insecure subshell call</div>
+                    <div className="pl-4 p-1.5 bg-[#A01D29]/35 border-l-2 border-[#FF1E2D] text-[#FF1E2D] font-bold">
                       {'os.system(f"ping {target}")'}
                     </div>
-                    <div className="pl-4 text-[#CBD5E1]">return <span className="text-[#E2E8F0]">True</span></div>
+                    <div className="pl-4 text-[#D9E1EA]">return <span className="text-[#DEE7F0]">True</span></div>
                   </>
                 )}
                 {sample === 'CODE_INJECTION' && (
                   <>
-                    <div><span className="text-[#CBD5E1]">import</span> ast</div>
-                    <div><span className="text-[#CBD5E1]">def</span> <span className="text-[#F8FAFC]">calc_metrics</span>(expression):</div>
-                    <div className="pl-4 text-[#94A3B8]"># Arbitrary eval injection</div>
-                    <div className="pl-4 p-1.5 bg-[#991B1B]/35 border-l-2 border-[#FF2A4B] text-[#FF2A4B] font-bold">
+                    <div><span className="text-[#D9E1EA]">import</span> ast</div>
+                    <div><span className="text-[#D9E1EA]">def</span> <span className="text-[#EAF1F8]">calc_metrics</span>(expression):</div>
+                    <div className="pl-4 text-[#A7B4C4]"># Arbitrary eval injection</div>
+                    <div className="pl-4 p-1.5 bg-[#A01D29]/35 border-l-2 border-[#FF1E2D] text-[#FF1E2D] font-bold">
                       eval(expression)
                     </div>
-                    <div className="pl-4 text-[#CBD5E1]">return <span className="text-[#E2E8F0]">True</span></div>
+                    <div className="pl-4 text-[#D9E1EA]">return <span className="text-[#DEE7F0]">True</span></div>
                   </>
                 )}
                 {sample === 'CLEAN' && (
                   <>
-                    <div><span className="text-[#CBD5E1]">import</span> subprocess, shlex</div>
-                    <div><span className="text-[#CBD5E1]">def</span> <span className="text-[#F8FAFC]">execute_backup</span>(target):</div>
-                    <div className="pl-4 text-[#94A3B8]"># Hardened argument vector</div>
-                    <div className="pl-4 p-1.5 bg-[#0B2556] border-l-2 border-[#CBD5E1] text-[#E2E8F0] font-bold">
+                    <div><span className="text-[#D9E1EA]">import</span> subprocess, shlex</div>
+                    <div><span className="text-[#D9E1EA]">def</span> <span className="text-[#EAF1F8]">execute_backup</span>(target):</div>
+                    <div className="pl-4 text-[#A7B4C4]"># Hardened argument vector</div>
+                    <div className="pl-4 p-1.5 bg-[#0B2A5E] border-l-2 border-[#D9E1EA] text-[#DEE7F0] font-bold">
                       {'subprocess.run(["ping", "-c", "1", shlex.quote(target)], check=True)'}
                     </div>
-                    <div className="pl-4 text-[#CBD5E1]">return <span className="text-[#E2E8F0]">True</span></div>
+                    <div className="pl-4 text-[#D9E1EA]">return <span className="text-[#DEE7F0]">True</span></div>
                   </>
                 )}
               </div>
 
               {/* Finding / AST Intelligence (80% Navy, 10% Red Risk, 10% Silver Text) */}
-              <div className="lg:col-span-5 p-4 bg-[#061533] border border-[#184384] space-y-3 flex flex-col justify-between">
+              <div className="lg:col-span-5 p-4 bg-[#071A2E] border border-[#17406E] space-y-3 flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between pb-2 border-b border-[#184384] text-[10px]">
-                    <span className="text-[#94A3B8]">AST SCAN RESULT</span>
-                    <span className={scanResult.pass ? 'text-[#E2E8F0] font-bold' : 'text-[#FF2A4B] font-bold'}>
+                  <div className="flex items-center justify-between pb-2 border-b border-[#17406E] text-[10px]">
+                    <span className="text-[#A7B4C4]">AST SCAN RESULT</span>
+                    <span className={scanResult.pass ? 'text-[#DEE7F0] font-bold' : 'text-[#FF1E2D] font-bold'}>
                       {scanResult.pass ? 'PASSED (CLEAN)' : 'CRITICAL SINK DETECTED'}
                     </span>
                   </div>
 
                   <div className="mt-3 space-y-2">
                     <div className="flex justify-between">
-                      <span className="text-[#94A3B8]">CWE IDENTIFIER:</span>
-                      <span className="text-[#F8FAFC] font-bold">{scanResult.cwe}</span>
+                      <span className="text-[#A7B4C4]">CWE IDENTIFIER:</span>
+                      <span className="text-[#EAF1F8] font-bold">{scanResult.cwe}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-[#94A3B8]">RISK SCORE:</span>
-                      <span className={scanResult.pass ? 'text-[#CBD5E1] font-bold' : 'text-[#FF2A4B] font-bold'}>
+                      <span className="text-[#A7B4C4]">RISK SCORE:</span>
+                      <span className={scanResult.pass ? 'text-[#D9E1EA] font-bold' : 'text-[#FF1E2D] font-bold'}>
                         {scanResult.risk} / 10.0
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-[#94A3B8]">SINK LOCATION:</span>
-                      <span className="text-[#CBD5E1]">{scanResult.pass ? 'None' : `Line ${scanResult.line}`}</span>
+                      <span className="text-[#A7B4C4]">SINK LOCATION:</span>
+                      <span className="text-[#D9E1EA]">{scanResult.pass ? 'None' : `Line ${scanResult.line}`}</span>
                     </div>
                   </div>
                 </div>
@@ -274,7 +273,7 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
                     GENERATE AST PATCH
                   </CyberButton>
                 ) : (
-                  <div className="p-2 bg-[#0B2556] border border-[#CBD5E1]/40 text-[#E2E8F0] text-center font-bold text-[10px]">
+                  <div className="p-2 bg-[#0B2A5E] border border-[#D9E1EA]/40 text-[#DEE7F0] text-center font-bold text-[10px]">
                     AST IS COMPLIANT WITH ENTERPRISE POLICY
                   </div>
                 )}
@@ -287,22 +286,22 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
         {activeTab === 'DIFF' && (
           <div className="pt-6 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 font-mono text-xs">
-              <div className="p-4 bg-[#020716] border border-[#184384] space-y-1">
-                <span className="text-[#FF2A4B] text-[10px] block font-bold">VULNERABLE AST (BEFORE)</span>
-                <div className="text-[#94A3B8] text-[11px]">- os.system(f"ping &#123;target&#125;")</div>
+              <div className="p-4 bg-[#020B1A] border border-[#17406E] space-y-1">
+                <span className="text-[#FF1E2D] text-[10px] block font-bold">VULNERABLE AST (BEFORE)</span>
+                <div className="text-[#A7B4C4] text-[11px]">- os.system(f"ping &#123;target&#125;")</div>
               </div>
-              <div className="p-4 bg-[#020716] border border-[#184384] space-y-1">
-                <span className="text-[#E2E8F0] text-[10px] block font-bold">REMEDIATED AST (AFTER)</span>
-                <div className="text-[#F8FAFC] text-[11px]">{'+ subprocess.run(["ping", "-c", "1", shlex.quote(target)], check=True)'}</div>
+              <div className="p-4 bg-[#020B1A] border border-[#17406E] space-y-1">
+                <span className="text-[#DEE7F0] text-[10px] block font-bold">REMEDIATED AST (AFTER)</span>
+                <div className="text-[#EAF1F8] text-[11px]">{'+ subprocess.run(["ping", "-c", "1", shlex.quote(target)], check=True)'}</div>
               </div>
             </div>
 
-            <div className="p-4 bg-[#020716] border border-[#184384] font-mono text-xs space-y-1 text-[#E2E8F0]">
-              <div className="text-[#94A3B8] text-[10px]">UNIFIED GIT DIFF</div>
-              <div className="text-[#FF2A4B] bg-[#991B1B]/25 px-2 py-0.5">- import os</div>
-              <div className="text-[#CBD5E1] bg-[#0B2556] px-2 py-0.5">+ import subprocess, shlex</div>
-              <div className="text-[#FF2A4B] bg-[#991B1B]/25 px-2 py-0.5">- return os.system(f"ping &#123;target&#125;")</div>
-              <div className="text-[#CBD5E1] bg-[#0B2556] px-2 py-0.5">{'+ return subprocess.run(["ping", shlex.quote(target)], check=True)'}</div>
+            <div className="p-4 bg-[#020B1A] border border-[#17406E] font-mono text-xs space-y-1 text-[#DEE7F0]">
+              <div className="text-[#A7B4C4] text-[10px]">UNIFIED GIT DIFF</div>
+              <div className="text-[#FF1E2D] bg-[#A01D29]/25 px-2 py-0.5">- import os</div>
+              <div className="text-[#D9E1EA] bg-[#0B2A5E] px-2 py-0.5">+ import subprocess, shlex</div>
+              <div className="text-[#FF1E2D] bg-[#A01D29]/25 px-2 py-0.5">- return os.system(f"ping &#123;target&#125;")</div>
+              <div className="text-[#D9E1EA] bg-[#0B2A5E] px-2 py-0.5">{'+ return subprocess.run(["ping", shlex.quote(target)], check=True)'}</div>
             </div>
 
             <div className="flex justify-end">
@@ -321,26 +320,26 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
         {activeTab === 'SANDBOX' && (
           <div className="pt-6 space-y-4 font-mono text-xs">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-              <div className="p-3 bg-[#020716] border border-[#184384]">
-                <span className="text-[#94A3B8] text-[10px] block">CPU</span>
+              <div className="p-3 bg-[#020B1A] border border-[#17406E]">
+                <span className="text-[#A7B4C4] text-[10px] block">CPU</span>
                 <span className="text-white font-bold">0.5 CORE</span>
               </div>
-              <div className="p-3 bg-[#020716] border border-[#184384]">
-                <span className="text-[#94A3B8] text-[10px] block">MEMORY</span>
+              <div className="p-3 bg-[#020B1A] border border-[#17406E]">
+                <span className="text-[#A7B4C4] text-[10px] block">MEMORY</span>
                 <span className="text-white font-bold">128 MB</span>
               </div>
-              <div className="p-3 bg-[#020716] border border-[#184384]">
-                <span className="text-[#94A3B8] text-[10px] block">NETWORK</span>
-                <span className="text-[#FF2A4B] font-bold">AIRGAP (NONE)</span>
+              <div className="p-3 bg-[#020B1A] border border-[#17406E]">
+                <span className="text-[#A7B4C4] text-[10px] block">NETWORK</span>
+                <span className="text-[#FF1E2D] font-bold">AIRGAP (NONE)</span>
               </div>
-              <div className="p-3 bg-[#020716] border border-[#184384]">
-                <span className="text-[#94A3B8] text-[10px] block">TIMEOUT</span>
-                <span className="text-[#CBD5E1] font-bold">10.0 SEC</span>
+              <div className="p-3 bg-[#020B1A] border border-[#17406E]">
+                <span className="text-[#A7B4C4] text-[10px] block">TIMEOUT</span>
+                <span className="text-[#D9E1EA] font-bold">10.0 SEC</span>
               </div>
             </div>
 
-            <div className="p-4 bg-[#020716] border border-[#184384] space-y-1.5 text-[#E2E8F0]">
-              <div className="flex items-center justify-between text-[#94A3B8] text-[10px] pb-2 border-b border-[#184384]">
+            <div className="p-4 bg-[#020B1A] border border-[#17406E] space-y-1.5 text-[#DEE7F0]">
+              <div className="flex items-center justify-between text-[#A7B4C4] text-[10px] pb-2 border-b border-[#17406E]">
                 <span>CONTAINER RUNTIME LOG STREAM</span>
                 <CyberButton
                   variant="secondary"
@@ -353,7 +352,7 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
               </div>
 
               {sandboxOutput.map((line, i) => (
-                <div key={i} className={line.includes('VALIDATED') ? 'text-[#E2E8F0] font-bold bg-[#0B2556]/50 px-2 py-0.5' : 'text-[#94A3B8]'}>
+                <div key={i} className={line.includes('VALIDATED') ? 'text-[#DEE7F0] font-bold bg-[#0B2A5E]/50 px-2 py-0.5' : 'text-[#A7B4C4]'}>
                   {line}
                 </div>
               ))}
@@ -365,27 +364,27 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
         {activeTab === 'POLICY' && (
           <div className="pt-6 space-y-4 font-mono text-xs">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="p-3 bg-[#020716] border border-[#184384] space-y-2">
-                <span className="text-[#FF2A4B] font-bold text-[10px] block">BANNED SINKS (CRITICAL)</span>
-                <div className="space-y-1 text-[#94A3B8]">
+              <div className="p-3 bg-[#020B1A] border border-[#17406E] space-y-2">
+                <span className="text-[#FF1E2D] font-bold text-[10px] block">BANNED SINKS (CRITICAL)</span>
+                <div className="space-y-1 text-[#A7B4C4]">
                   <div>• os.system()</div>
                   <div>• eval() / exec()</div>
                   <div>• pickle.loads()</div>
                 </div>
               </div>
 
-              <div className="p-3 bg-[#020716] border border-[#184384] space-y-2">
-                <span className="text-[#CBD5E1] font-bold text-[10px] block">MANDATORY SANITIZERS</span>
-                <div className="space-y-1 text-[#94A3B8]">
+              <div className="p-3 bg-[#020B1A] border border-[#17406E] space-y-2">
+                <span className="text-[#D9E1EA] font-bold text-[10px] block">MANDATORY SANITIZERS</span>
+                <div className="space-y-1 text-[#A7B4C4]">
                   <div>• shlex.quote()</div>
                   <div>• html.escape()</div>
                   <div>• psycopg2.sql</div>
                 </div>
               </div>
 
-              <div className="p-3 bg-[#020716] border border-[#184384] space-y-2">
-                <span className="text-[#CBD5E1] font-bold text-[10px] block">PR GATE THRESHOLDS</span>
-                <div className="space-y-1 text-[#94A3B8]">
+              <div className="p-3 bg-[#020B1A] border border-[#17406E] space-y-2">
+                <span className="text-[#D9E1EA] font-bold text-[10px] block">PR GATE THRESHOLDS</span>
+                <div className="space-y-1 text-[#A7B4C4]">
                   <div>• Max Permissible: 4.0/10</div>
                   <div>• Auto-Patch: &gt;= 7.0</div>
                   <div>• Airgap Verification: Strict</div>

@@ -19,8 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff mypy types-requests types-waitress types-PyYAML
+          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint (ruff)
         run: ruff check .

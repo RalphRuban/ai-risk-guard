@@ -104,7 +104,9 @@ if [[ "${CI_IMAGE:-}" != "no" ]]; then
 fi
 
 # --- 4. App code, venv, data dir ---------------------------------------------
-id "${APP_USER}" >/dev/null 2>&1 || useradd --system --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
+id "${APP_USER}" >/dev/null 2>&1 || useradd --system --groups docker \
+  --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
+usermod -aG docker "${APP_USER}"
 mkdir -p "${APP_DIR}" "${DATA_DIR}"
 
 if [[ -f "${APP_DIR}/app/app.py" ]]; then
@@ -122,36 +124,9 @@ fi
 "${APP_DIR}/venv/bin/pip" install --quiet --upgrade pip
 "${APP_DIR}/venv/bin/pip" install --quiet -r "${APP_DIR}/requirements.txt"
 
-# --- 5. Systemd service + env file -------------------------------------------
+# --- 5. Systemd service ------------------------------------------------------
 install -o root -g root -m 0644 \
   "${REPO_ROOT}/deploy/ai-risk-guard.service" /etc/systemd/system/ai-risk-guard.service
-
-ENV_FILE=/etc/ai-risk-guard.env
-if [[ ! -f "${ENV_FILE}" ]]; then
-  cat > "${ENV_FILE}" <<EOF
-GITHUB_APP_ID=${GITHUB_APP_ID}
-GITHUB_PRIVATE_KEY=${GITHUB_PRIVATE_KEY}
-GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
-GITHUB_APP_CLIENT_ID=${GITHUB_APP_CLIENT_ID}
-GITHUB_APP_CLIENT_SECRET=${GITHUB_APP_CLIENT_SECRET}
-FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
-APP_ENV=production
-DB_PATH=${DB_PATH}
-SESSION_COOKIE_SECURE=true
-GITHUB_APP_SLUG=${GITHUB_APP_SLUG:-}
-APP_DASHBOARD_URL=${APP_DASHBOARD_URL:-https://${HOSTNAME}/dashboard}
-METRICS_SCRAPE_TOKEN=${METRICS_SCRAPE_TOKEN:-}
-CI_VALIDATION_SECRET=${CI_VALIDATION_SECRET:-}
-CI_VALIDATION_BASE_URL=${CI_VALIDATION_BASE_URL:-https://${HOSTNAME}}
-CI_VALIDATION_TOKEN=${CI_VALIDATION_TOKEN:-}
-GEMINI_API_KEY=${GEMINI_API_KEY:-}
-EOF
-  chmod 600 "${ENV_FILE}"
-  chown root:root "${ENV_FILE}"
-  log "wrote ${ENV_FILE} (mode 600)"
-else
-  log "${ENV_FILE} already exists; leaving unchanged"
-fi
 
 chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 systemctl daemon-reload
@@ -203,14 +178,52 @@ if [[ ! -f "${SITE}" ]]; then
   nginx -t
 fi
 
-if [[ ! -d "/etc/letsencrypt/live/${HOSTNAME}" ]]; then
-  log "obtaining Let's Encrypt certificate for ${HOSTNAME}"
-  certbot --nginx -d "${HOSTNAME}" --redirect --non-interactive --agree-tos \
-    -m "admin@${HOSTNAME#*.}" || log "certbot failed (check DNS/port 80); leaving HTTP-only"
-else
+# Compute scheme: http until TLS is confirmed.
+TLS_SCHEME="http"
+if [[ -d "/etc/letsencrypt/live/${HOSTNAME}" ]]; then
+  TLS_SCHEME="https"
   log "certificate already present; skipping certbot"
+else
+  log "obtaining Let's Encrypt certificate for ${HOSTNAME}"
+  if certbot --nginx -d "${HOSTNAME}" --redirect --non-interactive --agree-tos \
+      -m "admin@${HOSTNAME#*.}"; then
+    TLS_SCHEME="https"
+  else
+    echo "ERROR: TLS provisioning FAILED for ${HOSTNAME}." >&2
+    echo "ERROR: Verify that the DNS A record points at this VM and that" >&2
+    echo "ERROR: port 80 is reachable from the internet. Run certbot manually" >&2
+    echo "ERROR: after fixing DNS/connectivity. The site is HTTP-only for now." >&2
+  fi
 fi
 systemctl reload nginx
+
+# --- 5b. Environment file (after TLS so scheme is known) --------------------
+ENV_FILE=/etc/ai-risk-guard.env
+if [[ ! -f "${ENV_FILE}" ]]; then
+  cat > "${ENV_FILE}" <<EOF
+GITHUB_APP_ID=${GITHUB_APP_ID}
+GITHUB_PRIVATE_KEY=${GITHUB_PRIVATE_KEY}
+GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+GITHUB_APP_CLIENT_ID=${GITHUB_APP_CLIENT_ID}
+GITHUB_APP_CLIENT_SECRET=${GITHUB_APP_CLIENT_SECRET}
+FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+APP_ENV=production
+DB_PATH=${DB_PATH}
+SESSION_COOKIE_SECURE=true
+GITHUB_APP_SLUG=${GITHUB_APP_SLUG:-}
+APP_DASHBOARD_URL=${APP_DASHBOARD_URL:-${TLS_SCHEME}://${HOSTNAME}/dashboard}
+METRICS_SCRAPE_TOKEN=${METRICS_SCRAPE_TOKEN:-}
+CI_VALIDATION_SECRET=${CI_VALIDATION_SECRET:-}
+CI_VALIDATION_BASE_URL=${CI_VALIDATION_BASE_URL:-${TLS_SCHEME}://${HOSTNAME}}
+CI_VALIDATION_TOKEN=${CI_VALIDATION_TOKEN:-}
+GEMINI_API_KEY=${GEMINI_API_KEY:-}
+EOF
+  chmod 600 "${ENV_FILE}"
+  chown root:root "${ENV_FILE}"
+  log "wrote ${ENV_FILE} (mode 600)"
+else
+  log "${ENV_FILE} already exists; leaving unchanged"
+fi
 
 # --- 7. Firewall -------------------------------------------------------------
 ufw allow 80/tcp >/dev/null
@@ -241,4 +254,4 @@ log "--- health checks ---"
 curl -fsS "http://127.0.0.1:8000/api/health" && echo
 curl -fsS "http://127.0.0.1:8000/api/health/ready" && echo
 curl -fsS -I "http://127.0.0.1:8000/dashboard" | head -n 1
-log "done. Dashboard: https://${HOSTNAME}/dashboard"
+log "done. Dashboard: ${TLS_SCHEME}://${HOSTNAME}/dashboard"

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import Aurora from '../bits/Backgrounds/Aurora/Aurora';
 
 export const CyberFlowBackground: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -43,8 +44,8 @@ export const CyberFlowBackground: React.FC = () => {
         size: 1 + Math.random() * 1.5,
         alpha: 0.2 + Math.random() * 0.5,
         isRed,
-        color: isRed ? '#FF2A4B' : '#CBD5E1',
-        headColor: isRed ? '#FF6B81' : '#FFFFFF'
+        color: isRed ? '#FF1E2D' : '#D9E1EA',
+        headColor: isRed ? '#FF5A68' : '#FFFFFF'
       };
     });
 
@@ -53,7 +54,7 @@ export const CyberFlowBackground: React.FC = () => {
       t += 0.008;
 
       // Crisp dark cyber clear (no long trailing blur)
-      ctx.fillStyle = 'rgba(2, 7, 22, 0.92)';
+      ctx.fillStyle = 'rgba(2, 11, 26, 0.92)';
       ctx.fillRect(0, 0, width, height);
 
       // 1. Draw organic flowing cyber wave streams (Subtle & clean)
@@ -63,9 +64,9 @@ export const CyberFlowBackground: React.FC = () => {
         const baseOffset = (w * height) / 4.2;
         
         if (w === 1) {
-          ctx.strokeStyle = `rgba(255, 42, 75, 0.22)`;
+          ctx.strokeStyle = `rgba(255, 30, 45, 0.22)`;
         } else {
-          ctx.strokeStyle = `rgba(0, 180, 255, ${0.08 + w * 0.03})`;
+          ctx.strokeStyle = `rgba(0, 168, 255, ${0.08 + w * 0.03})`;
         }
 
         for (let x = 0; x < width; x += 25) {
@@ -99,16 +100,16 @@ export const CyberFlowBackground: React.FC = () => {
         // Clean luminous orb (no tail)
         const nodeRadius = p.size * 1.4;
         ctx.fillStyle = p.isRed 
-          ? `rgba(255, 42, 75, ${p.alpha * 0.9})` 
-          : `rgba(0, 207, 255, ${p.alpha * 0.85})`;
+          ? `rgba(255, 30, 45, ${p.alpha * 0.9})` 
+          : `rgba(0, 168, 255, ${p.alpha * 0.85})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, nodeRadius, 0, Math.PI * 2);
         ctx.fill();
 
         // Subtle soft outer corona
         ctx.fillStyle = p.isRed 
-          ? `rgba(255, 42, 75, ${p.alpha * 0.25})` 
-          : `rgba(0, 207, 255, ${p.alpha * 0.22})`;
+          ? `rgba(255, 30, 45, ${p.alpha * 0.25})` 
+          : `rgba(0, 168, 255, ${p.alpha * 0.22})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, nodeRadius * 2.5, 0, Math.PI * 2);
         ctx.fill();
@@ -129,17 +130,12 @@ export const CyberFlowBackground: React.FC = () => {
   return (
     <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
       {/* 80% Navy Blue Void Atmosphere */}
-      <div className="absolute inset-0 bg-[#020716]" />
+      <div className="absolute inset-0 bg-[#020B1A]" />
 
-      {/* 80% Dominant Deep Navy Glow Orbs */}
-      <div className="absolute -top-32 -left-32 w-[600px] h-[600px] rounded-full bg-[#0B2556]/30 blur-[140px] animate-pulse" />
-      <div className="absolute -bottom-40 left-1/3 w-[800px] h-[800px] rounded-full bg-[#081D45]/35 blur-[160px] animate-pulse" style={{ animationDuration: '9s' }} />
-
-      {/* 10% Cyber Red Threat Glow Accent Orb */}
-      <div className="absolute top-1/4 -right-28 w-[500px] h-[500px] rounded-full bg-[#FF2A4B]/12 blur-[150px] animate-pulse" style={{ animationDuration: '7s' }} />
-
-      {/* 10% Metallic Silver Sheen Accent */}
-      <div className="absolute top-2/3 -left-20 w-[450px] h-[450px] rounded-full bg-[#CBD5E1]/8 blur-[160px] animate-pulse" style={{ animationDuration: '8s' }} />
+      {/* 80% Dominant Deep Navy Glow Orbs branded as Aurora WebGL wash */}
+      <div className="absolute inset-0 opacity-70">
+        <Aurora colorStops={['#00A8FF', '#007BFF', '#0B2A5E']} amplitude={1} speed={0.5} blend={0.6} />
+      </div>
 
       {/* Procedural Flow Canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80" />

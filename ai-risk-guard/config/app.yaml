@@ -110,7 +110,7 @@ ci_runner:
   enabled: true
   # Repo that hosts .github/workflows/ai-risk-guard-validate.yml (owner/name).
   # Empty falls back to GITHUB_REPOSITORY, then skips dispatch.
-  workflow_repo: ""
+  workflow_repo: "RalphRuban/ai-risk-guard"
   event_type: "ai-risk-guard-validate"
   base_url: ""
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { ViewId, ViewMeta } from '../../types';
-import { X, Shield, Lock, ExternalLink, Terminal, Cpu, Database, FileText, Settings, Activity } from 'lucide-react';
+import { X, Lock, Terminal } from 'lucide-react';
 import { TacticalBracket } from './TacticalBracket';
 import { CyberButton } from './CyberButton';
 
@@ -51,37 +51,38 @@ export const WorkstationLauncherModal: React.FC<WorkstationLauncherModalProps> =
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-[#02050B]/90 backdrop-blur-xl animate-fadeIn">
-      <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col bg-[#030914] border border-[#1E3C5C] shadow-[0_0_60px_rgba(0,107,255,0.25)]">
-        <TacticalBracket color="#00CFFF" size="lg" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-[#020B1A]/90 backdrop-blur-xl animate-fadeIn">
+      <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col bg-[#050B16] border border-[#17406E] shadow-[0_0_60px_rgba(0,123,255,0.25)]">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-[#EAF1F8]/85 to-transparent pointer-events-none shadow-[0_2px_12px_rgba(217,225,234,0.25)]" />
+        <TacticalBracket color="#00A8FF" size="lg" />
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1E3C5C] bg-[#06101F]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#17406E] bg-[#050B16]">
           <div className="flex items-center space-x-3">
-            <Terminal className="w-5 h-5 text-[#00CFFF]" />
+            <Terminal className="w-5 h-5 text-[#00A8FF]" />
             <div>
               <h3 className="font-headline text-lg text-white">Workstation Launcher — 18 Integrated Views</h3>
-              <p className="font-mono text-[10px] text-[#8D9AAA]">AUTONOMOUS DEFENSE PLATFORM NAVIGATION MATRIX</p>
+              <p className="font-mono text-[10px] text-[#9AA7B8]">AUTONOMOUS DEFENSE PLATFORM NAVIGATION MATRIX</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-[#8D9AAA] hover:text-white hover:bg-[#0F253E] transition-colors border border-transparent hover:border-[#1E3C5C]"
+            className="p-1.5 text-[#9AA7B8] hover:text-white hover:bg-[#0B2A5E] transition-colors border border-transparent hover:border-[#17406E]"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center space-x-2 border-b border-[#1E3C5C] bg-[#030914] px-6 py-3 overflow-x-auto">
+        <div className="flex items-center space-x-2 border-b border-[#17406E] bg-[#050B16] px-6 py-3 overflow-x-auto">
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setFilterCategory(cat)}
               className={`px-3 py-1 font-mono text-[11px] tracking-wider transition-all border ${
                 filterCategory === cat
-                  ? 'bg-[#087BFF]/30 border-[#00CFFF] text-[#65E7FF]'
-                  : 'bg-transparent border-[#1E3C5C]/60 text-[#8D9AAA] hover:text-white'
+                  ? 'bg-[#007BFF]/30 border-[#D9E1EA]/80 text-[#EAF1F8] shadow-[0_0_12px_rgba(217,225,234,0.25)]'
+                  : 'bg-transparent border-[#17406E]/60 text-[#9AA7B8] hover:text-white'
               }`}
             >
               {cat}
@@ -104,36 +105,36 @@ export const WorkstationLauncherModal: React.FC<WorkstationLauncherModalProps> =
                 }}
                 className={`group relative p-4 border transition-all cursor-pointer ${
                   isCurrent
-                    ? 'bg-[#087BFF]/20 border-[#00CFFF] shadow-[0_0_20px_rgba(0,207,255,0.2)]'
+                    ? 'bg-[#007BFF]/20 border-[#D9E1EA]/80 shadow-[0_0_20px_rgba(217,225,234,0.25)]'
                     : isLocked
-                    ? 'bg-[#06101F]/40 border-[#1E3C5C]/50 hover:border-[#FF304F]/60'
-                    : 'bg-[#06101F]/70 border-[#1E3C5C] hover:border-[#00CFFF]/60 hover:bg-[#08172A]'
+                    ? 'bg-[#050B16]/40 border-[#17406E]/50 hover:border-[#FF1E2D]/60'
+                    : 'bg-[#050B16]/70 border-[#17406E] hover:border-[#00A8FF]/60 hover:bg-[#0B2A5E] hover:shadow-[0_0_16px_rgba(217,225,234,0.15)]'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-[10px] text-[#00CFFF] tracking-widest">{view.code}</span>
+                  <span className="font-mono text-[10px] text-[#00A8FF] tracking-widest">{view.code}</span>
                   <div className="flex items-center space-x-1.5">
-                    <span className="text-[9px] font-mono px-1.5 py-0.5 bg-[#030914] border border-[#1E3C5C] text-[#8D9AAA]">
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 bg-[#050B16] border border-[#17406E] text-[#9AA7B8]">
                       {view.category}
                     </span>
                     {isLocked ? (
-                      <Lock className="w-3.5 h-3.5 text-[#FF304F]" />
+                      <Lock className="w-3.5 h-3.5 text-[#FF1E2D]" />
                     ) : isCurrent ? (
                       <span className="w-2 h-2 rounded-full bg-[#00E699] animate-pulse" />
                     ) : null}
                   </div>
                 </div>
 
-                <h4 className="font-headline text-sm text-white mb-1.5 group-hover:text-[#65E7FF] transition-colors">
+                <h4 className="font-headline text-sm text-white mb-1.5 group-hover:text-[#5BC9FF] transition-colors">
                   {view.title}
                 </h4>
 
-                <p className="font-mono text-[11px] text-[#8D9AAA] line-clamp-2 leading-relaxed">
+                <p className="font-mono text-[11px] text-[#9AA7B8] line-clamp-2 leading-relaxed">
                   {view.description}
                 </p>
 
                 {isLocked && (
-                  <div className="mt-2 text-[10px] font-mono text-[#FF304F] flex items-center space-x-1">
+                  <div className="mt-2 text-[10px] font-mono text-[#FF1E2D] flex items-center space-x-1">
                     <span>* Requires GitHub Clearance</span>
                   </div>
                 )}
@@ -143,10 +144,10 @@ export const WorkstationLauncherModal: React.FC<WorkstationLauncherModalProps> =
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-[#1E3C5C] bg-[#06101F]">
-          <div className="font-mono text-[11px] text-[#8D9AAA] flex items-center space-x-2">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[#17406E] bg-[#050B16]">
+          <div className="font-mono text-[11px] text-[#9AA7B8] flex items-center space-x-2">
             <span>OPERATOR STATE:</span>
-            <span className={isAuthenticated ? 'text-[#00E699]' : 'text-[#FF304F]'}>
+            <span className={isAuthenticated ? 'text-[#00E699]' : 'text-[#FF1E2D]'}>
               {isAuthenticated ? 'AUTHENTICATED (@octocat-secops)' : 'UNAUTHENTICATED (PUBLIC VISITOR)'}
             </span>
           </div>

@@ -14,7 +14,8 @@ from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-LOG_FILE    = Path("data/logs.json")
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOG_FILE    = _PROJECT_ROOT / "data/logs.json"
 MAX_BYTES   = 5 * 1024 * 1024   # 5 MB per file
 BACKUP_COUNT = 3                  # keep 3 rotated backups
 

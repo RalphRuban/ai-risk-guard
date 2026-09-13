@@ -13,6 +13,22 @@ from utils.logger import logger
 
 log = logging.getLogger("ai_risk_guard.diff_engine")
 
+_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def _normalize_path(header_path: str) -> str:
+    """Normalize a unified-diff file header path.
+
+    Git's default ``a/``/``b/`` prefixes are stripped while paths without a
+    prefix (``--no-prefix`` sources or third-party patches) pass through, so
+    the file key matches the repository paths used by ``should_scan_line``.
+    """
+    path = header_path.strip()
+    for prefix in ("a/", "b/"):
+        if path.startswith(prefix):
+            return path[len(prefix):]
+    return path
+
 
 class DiffAwareScanner:
 
@@ -33,23 +49,26 @@ class DiffAwareScanner:
             lines = diff_text.splitlines()
 
             for line in lines:
-                if line.startswith("+++ b/"):
-                    current_file = (
-                        line.replace("+++ b/", "").strip()
-                    )
-                    changed_files.setdefault(current_file, set())
-
-                elif line.startswith("@@") and current_file is None and default_file:
-                    current_file = default_file
-                    changed_files.setdefault(current_file, set())
-                    match = re.search(r"\+(\d+)", line)
-                    if match:
-                        current_line = int(match.group(1))
+                if line.startswith(("+++ ", "--- ")):
+                    header_path = line[4:].strip()
+                    # Deleted files are represented as +++ /dev/null; the real
+                    # path arrives in the --- line, so /dev/null is ignored.
+                    if header_path and header_path != "/dev/null":
+                        current_file = _normalize_path(header_path)
+                        changed_files.setdefault(current_file, set())
 
                 elif line.startswith("@@"):
-                    match = re.search(r"\+(\d+)", line)
+                    if current_file is None and default_file:
+                        current_file = default_file
+                        changed_files.setdefault(current_file, set())
+                    match = _HUNK_RE.match(line)
                     if match:
-                        current_line = int(match.group(1))
+                        current_line = int(match.group(2))
+
+                elif line.startswith("\\"):
+                    # Git "\\ No newline at end of file" continuation marker,
+                    # not a source line — must not advance the new-line counter.
+                    continue
 
                 elif line.startswith("+") and not line.startswith("+++"):
                     if current_file:
