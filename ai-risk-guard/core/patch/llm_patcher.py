@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from google import genai
+from google.genai import types
 
 from core.cache.gemini_cache import GeminiCache
 from core.config import config
@@ -48,7 +49,11 @@ class LLMPatcher:
             self.client = None
         else:
             try:
-                self.client = genai.Client(api_key=api_key)
+                timeout_ms = int(config.app.llm.request_timeout_seconds * 1000)
+                self.client = genai.Client(
+                    api_key=api_key,
+                    http_options=types.HttpOptions(timeout=timeout_ms),
+                )
 
                 # Stage 2: Resolve model via shared utility with fallback chain
                 self.model_id = resolve_gemini_model(self.client, self._fallback_chain)
@@ -83,6 +88,14 @@ class LLMPatcher:
         except ImportError:
             pass
 
+    @staticmethod
+    def _request_config() -> types.GenerateContentConfig | None:
+        """Shared generation config (output-token cap) for Gemini calls."""
+        limited = int(config.app.llm.max_output_tokens)
+        if limited <= 0:
+            return None
+        return types.GenerateContentConfig(max_output_tokens=limited)
+
     def _try_next_model(self, prompt: str, gemini_start: float, attempt_start: int = 1) -> str | None:
         """Try the next model in the fallback chain. Returns content or None if all models exhausted."""
         for next_idx in range(self._model_index + 1, len(self._fallback_chain)):
@@ -97,6 +110,7 @@ class LLMPatcher:
                     response = self.client.models.generate_content(
                         model=next_model,
                         contents=prompt,
+                        config=self._request_config(),
                     )
                 content = response.text
                 from app.metrics import gemini_latency
@@ -207,6 +221,7 @@ def ping_host(host: str):
                     response = self.client.models.generate_content(
                         model=self.model_id,
                         contents=prompt,
+                        config=self._request_config(),
                     )
                 content = response.text
                 from app.metrics import gemini_latency
@@ -226,6 +241,7 @@ def ping_host(host: str):
                             response = self.client.models.generate_content(
                                 model=self.model_id,
                                 contents=prompt,
+                                config=self._request_config(),
                             )
                         content = response.text
                         from app.metrics import gemini_latency

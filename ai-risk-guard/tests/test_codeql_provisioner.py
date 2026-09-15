@@ -142,7 +142,7 @@ class TestCreateCodeqlPr:
 
         pr_call = posts[1]
         assert pr_call[0][0].endswith("/pulls")
-        assert pr_call[1]["json"]["title"] == "Enable GitHub CodeQL analysis (via AI Risk Guard)"
+        assert pr_call[1]["json"]["title"] == "Enable GitHub CodeQL analysis (via AUREX)"
         assert pr_call[1]["json"]["head"] == "ai-risk-guard/codeql-setup"
         assert pr_call[1]["json"]["base"] == "main"
 

@@ -16,7 +16,7 @@ interface TacticalSidebarProps {
   onLogoutClick: () => void;
 }
 
-const GROUP_LABELS = ['CORE', 'ENGINES', 'GOVERNANCE', 'SYSTEM'] as const;
+const GROUP_LABELS = ['CORE', 'GOVERNANCE', 'SYSTEM'] as const;
 
 export const SHORT_LABELS: Record<string, string> = {
   landing: 'ANCHOR',
@@ -24,17 +24,13 @@ export const SHORT_LABELS: Record<string, string> = {
   signup: 'SIGNUP',
   dashboard: 'OVERVIEW',
   repositories: 'REPOS',
-  scanner: 'SCANNER',
   findings: 'FINDINGS',
-  patch: 'REMEDIATE',
-  sandbox: 'SANDBOX',
   policy: 'POLICY',
   risk: 'RISK',
-  telemetry: 'TELEMETRY',
   agents: 'AGENTS',
   reports: 'REPORTS',
   'report-detail': 'REPORT DETAIL',
-  github: 'GITHUB APP',
+  github: 'SCAN ACTIVITY',
   settings: 'SETTINGS',
   status: 'HEALTH',
   profile: 'PROFILE'
@@ -43,7 +39,7 @@ export const SHORT_LABELS: Record<string, string> = {
 export const getGroupedViews = () =>
   GROUP_LABELS.map((group) => ({
     label: group,
-    views: ALL_VIEWS.filter((v) => v.category === group)
+    views: ALL_VIEWS.filter((v) => v.category === group && !v.hiddenFromNav)
   }));
 
 export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
@@ -87,7 +83,6 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
             : 'bg-transparent border-transparent text-[#C2CDD9] hover:bg-[#0B2A5E]/50 hover:text-white'
         }`}
       >
-        <span className="text-[8px] opacity-70 shrink-0">{view.code.replace('VIEW-', '')}</span>
         <span className="flex-1">{SHORT_LABELS[view.id] ?? view.title.split(' ')[0]}</span>
         {isLocked && <Lock className="w-2.5 h-2.5 text-[#FF1E2D]/80 shrink-0" />}
         {isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#00E699] animate-pulse shrink-0" />}

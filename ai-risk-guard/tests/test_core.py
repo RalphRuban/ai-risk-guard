@@ -824,7 +824,7 @@ class TestHybridReporter:
         assert "Hardcoded Secret" in report
         assert "*(legacy)*" in report
         assert "SARIF alerts: Security" not in report
-        assert "✅ Check: `ai-risk-guard/validation` in Checks" in report
+        assert "✅ Check: `aurex/validation` in Checks" in report
 
 
 # =========================================================
@@ -841,6 +841,14 @@ class TestPolicyEngineExtended:
         res = policy.check_compliance(code)
         assert res["success"] is False
         assert any("Forbidden module import" in v for v in res["violations"])
+
+    def test_check_compliance_forbidden_function_pickle_loads(self):
+        from core.policy.policy_engine import PolicyEngine
+        policy = PolicyEngine()
+        code = 'import pickle\npayload = pickle.loads(data)'
+        res = policy.check_compliance(code)
+        assert res["success"] is False
+        assert any("Forbidden function call: pickle.loads" in v for v in res["violations"])
 
     def test_check_compliance_mandatory_sanitizer_missing(self):
         from core.policy.policy_engine import PolicyEngine
@@ -1521,27 +1529,38 @@ class TestUserScanSettings:
         assert udb.get_user_settings(None)["scan_mode"] == "docker_only"
         assert udb.get_user_settings(None)["sandbox_network"] == "none"
         assert udb.get_user_settings(None)["codeql_enabled"] is True
+        assert udb.get_user_settings(None)["patch_mode"] == "both"
         assert udb.get_user_settings(999)["scan_mode"] == "docker_only"
         assert udb.get_user_settings(999)["codeql_enabled"] is True
+        assert udb.get_user_settings(999)["patch_mode"] == "both"
 
     def test_update_and_roundtrip(self):
         import utils.db as udb
         self._seed_user()
-        udb.update_user_settings(111, scan_mode="sandbox_with_local_fallback", sandbox_network="bridge", codeql_enabled=False)
+        udb.update_user_settings(111, scan_mode="ci_fallback", sandbox_network="bridge", codeql_enabled=False, patch_mode="deterministic_only")
         settings = udb.get_user_settings(111)
-        assert settings["scan_mode"] == "sandbox_with_local_fallback"
+        assert settings["scan_mode"] == "ci_fallback"
         assert settings["sandbox_network"] == "bridge"
         assert settings["codeql_enabled"] is False
+        assert settings["patch_mode"] == "deterministic_only"
+
+    def test_legacy_scan_mode_normalized_to_ci_fallback(self):
+        import utils.db as udb
+        self._seed_user()
+        udb.update_user_settings(111, scan_mode="sandbox_with_local_fallback")
+        settings = udb.get_user_settings(111)
+        assert settings["scan_mode"] == "ci_fallback"
 
     def test_partial_update_keeps_other_field(self):
         import utils.db as udb
         self._seed_user()
-        udb.update_user_settings(111, scan_mode="sandbox_with_local_fallback", sandbox_network="bridge")
+        udb.update_user_settings(111, scan_mode="ci_fallback", sandbox_network="bridge")
         udb.update_user_settings(111, sandbox_network="none")
         settings = udb.get_user_settings(111)
-        assert settings["scan_mode"] == "sandbox_with_local_fallback"
+        assert settings["scan_mode"] == "ci_fallback"
         assert settings["sandbox_network"] == "none"
         assert settings["codeql_enabled"] is True
+        assert settings["patch_mode"] == "both"
 
     def test_invalid_value_raises(self):
         import utils.db as udb
@@ -1561,17 +1580,24 @@ class TestUserScanSettings:
             assert False, "expected ValueError"
         except ValueError:
             pass
+        try:
+            udb.update_user_settings(111, patch_mode="nope")
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
 
     def test_per_user_isolation(self):
         import utils.db as udb
         self._seed_user(111, "alice")
         self._seed_user(222, "bob")
-        udb.update_user_settings(111, scan_mode="sandbox_with_local_fallback", sandbox_network="bridge", codeql_enabled=False)
-        assert udb.get_user_settings(111)["scan_mode"] == "sandbox_with_local_fallback"
+        udb.update_user_settings(111, scan_mode="ci_fallback", sandbox_network="bridge", codeql_enabled=False, patch_mode="deterministic_only")
+        assert udb.get_user_settings(111)["scan_mode"] == "ci_fallback"
         assert udb.get_user_settings(111)["codeql_enabled"] is False
+        assert udb.get_user_settings(111)["patch_mode"] == "deterministic_only"
         assert udb.get_user_settings(222)["scan_mode"] == "docker_only"
         assert udb.get_user_settings(222)["sandbox_network"] == "none"
         assert udb.get_user_settings(222)["codeql_enabled"] is True
+        assert udb.get_user_settings(222)["patch_mode"] == "both"
 
     def test_api_settings_get_requires_auth(self):
         assert self.client.get("/api/settings").status_code == 401
@@ -1583,24 +1609,28 @@ class TestUserScanSettings:
         data = self.client.get("/api/settings").get_json()
         assert data["settings"]["scan_mode"] == "docker_only"
         assert data["settings"]["codeql_enabled"] is True
-        assert set(data["options"]["scan_modes"]) == {"docker_only", "sandbox_with_local_fallback"}
+        assert data["settings"]["patch_mode"] == "both"
+        assert set(data["options"]["scan_modes"]) == {"docker_only", "ci_fallback"}
         assert set(data["options"]["networks"]) == {"none", "bridge"}
+        assert set(data["options"]["patch_modes"]) == {"both", "deterministic_only"}
 
     def test_api_settings_post_persists(self):
         self._seed_user()
         with self.client.session_transaction() as sess:
             sess["user"] = {"github_id": "111", "login": "alice"}
         resp = self.client.post("/api/settings", json={
-            "scan_mode": "sandbox_with_local_fallback",
+            "scan_mode": "ci_fallback",
             "sandbox_network": "bridge",
             "codeql_enabled": False,
+            "patch_mode": "deterministic_only",
         }, headers=csrf_headers(self.client))
         assert resp.status_code == 200
         assert resp.get_json()["saved"] is True
         data = self.client.get("/api/settings").get_json()
-        assert data["settings"]["scan_mode"] == "sandbox_with_local_fallback"
+        assert data["settings"]["scan_mode"] == "ci_fallback"
         assert data["settings"]["sandbox_network"] == "bridge"
         assert data["settings"]["codeql_enabled"] is False
+        assert data["settings"]["patch_mode"] == "deterministic_only"
 
     def test_api_settings_post_invalid_returns_400(self):
         self._seed_user()
@@ -1611,6 +1641,8 @@ class TestUserScanSettings:
         resp = self.client.post("/api/settings", json={}, headers=csrf_headers(self.client))
         assert resp.status_code == 400
         resp = self.client.post("/api/settings", json={"codeql_enabled": "yes"}, headers=csrf_headers(self.client))
+        assert resp.status_code == 400
+        resp = self.client.post("/api/settings", json={"patch_mode": "bogus"}, headers=csrf_headers(self.client))
         assert resp.status_code == 400
 
 # =========================================================

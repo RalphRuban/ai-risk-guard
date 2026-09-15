@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { GlassPanel } from '../common/GlassPanel';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId, RepositoryItem } from '../../types';
-import { Plus, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { getDashboardData } from '../../api/client';
 
 interface View05RepositoriesProps {
@@ -77,14 +77,6 @@ export const View05Repositories: React.FC<View05RepositoriesProps> = ({ onNaviga
             loading={loading}
           >
             SYNC
-          </CyberButton>
-          <CyberButton
-            variant="primary"
-            size="sm"
-            icon={<Plus className="w-4 h-4" />}
-            onClick={() => onNavigate('github')}
-          >
-            CONNECT NEW REPO
           </CyberButton>
         </div>
       </div>
@@ -161,9 +153,9 @@ export const View05Repositories: React.FC<View05RepositoriesProps> = ({ onNaviga
                   variant={isAlert ? 'threat' : 'secondary'}
                   size="sm"
                   className="w-full"
-                  onClick={() => onNavigate(isAlert ? 'findings' : isScanning ? 'scanner' : 'scanner')}
+                  onClick={() => onNavigate('findings')}
                 >
-                  {isAlert ? 'REVIEW FINDINGS' : 'RUN AST SCAN'}
+                  {isAlert ? 'REVIEW FINDINGS' : 'VIEW SCANS'}
                 </CyberButton>
               </div>
             </GlassPanel>

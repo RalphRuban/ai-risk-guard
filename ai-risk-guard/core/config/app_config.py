@@ -24,6 +24,22 @@ class LlmConfig(BaseModel):
         ge=1.0,
         le=3600.0,
     )
+    light_model: str = Field(
+        "gemini-3.1-flash-lite",
+        description="Cheapest/light model used for non-critical LLM calls (explanations, summary, regression-explain, triage). Falls back to primary chain if unavailable.",
+    )
+    request_timeout_seconds: float = Field(
+        45.0,
+        description="Max seconds a single Gemini API call may take before being aborted",
+        ge=5.0,
+        le=300.0,
+    )
+    max_output_tokens: int = Field(
+        4096,
+        description="Max output tokens per Gemini call",
+        ge=256,
+        le=32768,
+    )
 
     @field_validator("model_fallback_chain")
     @classmethod
@@ -74,7 +90,7 @@ class GitHubAppConfig(BaseModel):
 
 class ChecksConfig(BaseModel):
     create_check: bool = Field(True, description="Create an informational Check Run on PRs")
-    name: str = Field("ai-risk-guard/validation", description="Check Run name shown on the Checks tab")
+    name: str = Field("aurex/validation", description="Check Run name shown on the Checks tab")
     gating: bool = Field(False, description="Whether the check gates merges. When false, failures are reported as neutral so the check never blocks merges")
 
 
@@ -82,7 +98,21 @@ class CodeQLConfig(BaseModel):
     enabled: bool = Field(True, description="Enable CodeQL provisioning for installed repos")
     auto_provision: bool = Field(True, description="Open a CodeQL setup PR when the app is installed on a repo")
     workflow_branch: str = Field("ai-risk-guard/codeql-setup", description="Branch used for the provisioning PR")
-    pr_title: str = Field("Enable GitHub CodeQL analysis (via AI Risk Guard)", description="Title of the provisioning PR")
+    pr_title: str = Field("Enable GitHub CodeQL analysis (via AUREX)", description="Title of the provisioning PR")
+
+
+class PatchConfig(BaseModel):
+    mode: str = Field(
+        "both",
+        description="Patch generation strategy. 'deterministic_only' uses AST fixers only (fast, deterministic); 'both' also generates LLM variants (more context-aware, slower)",
+    )
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_patch_mode(cls, mode: str) -> str:
+        if mode not in ("deterministic_only", "both"):
+            raise ValueError("patch.mode must be 'deterministic_only' or 'both'")
+        return mode
 
 
 class ReactionFeedbackConfig(BaseModel):
@@ -119,6 +149,15 @@ class ValidationConfig(BaseModel):
     enabled: bool = Field(True, description="Enable deferred re-validation: re-run scans whose sandbox validation failed closed once Docker is available again")
     poll_interval_seconds: int = Field(60, description="How often the background worker checks for pending scans and Docker availability", ge=10)
     max_revalidations_per_cycle: int = Field(3, description="Max scans re-triggered per worker cycle", ge=1, le=20)
+    test_only_on_winner: bool = Field(
+        True,
+        description="Run regression tests only on the final winning patch candidate (ranks candidates via syntax/sandbox/rescan/policy first). Speeds up scans with many candidates.",
+    )
+
+
+class TestFileCacheConfig(BaseModel):
+    enabled: bool = Field(True, description="Cache per-repo test-file discovery results in memory to cut GitHub Contents API calls")
+    ttl_seconds: int = Field(3600, description="How long a cached test-file discovery result stays valid", ge=60)
 
 
 class CIRunnerConfig(BaseModel):
@@ -149,6 +188,7 @@ class AppConfig(BaseModel):
     github_app: GitHubAppConfig = Field(default_factory=GitHubAppConfig)  # type: ignore[arg-type]
     checks: ChecksConfig = Field(default_factory=ChecksConfig)  # type: ignore[arg-type]
     codeql: CodeQLConfig = Field(default_factory=CodeQLConfig)  # type: ignore[arg-type]
+    patch: PatchConfig = Field(default_factory=PatchConfig)  # type: ignore[arg-type]
     llm: LlmConfig = Field(default_factory=LlmConfig)  # type: ignore[arg-type]
     feedback: ReactionFeedbackConfig = Field(default_factory=ReactionFeedbackConfig)  # type: ignore[arg-type]
     triage: TriageConfig = Field(default_factory=TriageConfig)  # type: ignore[arg-type]
@@ -156,5 +196,6 @@ class AppConfig(BaseModel):
     summary: SummaryConfig = Field(default_factory=SummaryConfig)  # type: ignore[arg-type]
     regression_explain: RegressionExplainConfig = Field(default_factory=RegressionExplainConfig)  # type: ignore[arg-type]
     validation: ValidationConfig = Field(default_factory=ValidationConfig)  # type: ignore[arg-type]
+    test_file_cache: TestFileCacheConfig = Field(default_factory=TestFileCacheConfig)  # type: ignore[arg-type]
     ci_runner: CIRunnerConfig = Field(default_factory=CIRunnerConfig)  # type: ignore[arg-type]
     deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)  # type: ignore[arg-type]

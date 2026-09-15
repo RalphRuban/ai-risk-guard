@@ -35,13 +35,24 @@ DEFAULT_SCAN_MODE = "docker_only"
 DEFAULT_SANDBOX_NETWORK = "none"
 SCAN_MODES = frozenset({
     DEFAULT_SCAN_MODE,
-    # Legacy value from before the fail-closed change; still accepted for
-    # existing saved settings but behaves identically to docker_only.
+    # CI-runner fallback: when the App's Docker daemon is unavailable, sandbox
+    # and regression-test stages fail closed and are re-run on a GitHub
+    # Actions runner (see core/ci/validation.py).
+    "ci_fallback",
+})
+# Legacy value migrated to ci_fallback; still accepted for existing saved
+# settings from before the CI-runner fallback shipped.
+LEGACY_SCAN_MODES = frozenset({
     "sandbox_with_local_fallback",
 })
 SANDBOX_NETWORKS = frozenset({
     DEFAULT_SANDBOX_NETWORK,
     "bridge",
+})
+DEFAULT_PATCH_MODE = "both"
+PATCH_MODES = frozenset({
+    "both",
+    "deterministic_only",
 })
 
 
@@ -343,22 +354,20 @@ def init_db():
         """)
 
         # Per-user scan configuration (Phase 4.1). NULL value columns mean
-        # "use the system default" for that user.
+        # "use the system default" for that user. patch_mode selects the patch
+        # generation strategy: "both" (AST baseline + LLM variants) or
+        # "deterministic_only" (AST fixers only).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_settings (
                 github_id INTEGER PRIMARY KEY REFERENCES users(github_id) ON DELETE CASCADE,
                 scan_mode TEXT,
                 sandbox_network TEXT,
                 codeql_enabled INTEGER DEFAULT 1,
+                patch_mode TEXT,
                 updated_at TEXT DEFAULT (datetime('now'))
             )
         """)
-
-        # Migration: add codeql_enabled to user_settings tables created before
-        # the CodeQL enable toggle shipped (existing on-disk DBs).
-        us_cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()]
-        if "codeql_enabled" not in us_cols:
-            conn.execute("ALTER TABLE user_settings ADD COLUMN codeql_enabled INTEGER DEFAULT 1")
+        _migrate_user_settings(conn)
 
         # Repos discovered from webhooks
         conn.execute("""
@@ -868,17 +877,28 @@ def _get_dashboard_per_user(github_id: int) -> dict:
         ).fetchone()
 
         attention = conn.execute("""
-            SELECT f.id, f.vuln_type, f.severity, f.risk_score, f.file_path,
-                   s.pr_number, s.pr_title, r.id AS repo_id, r.full_name AS repo_full_name,
-                   s.id AS scan_id
-            FROM findings f
-            JOIN scans s ON f.scan_id = s.id
-            JOIN repos r ON s.repo_id = r.id
-            JOIN user_installations ui
-              ON ui.install_id = r.install_id AND ui.github_id = ?
-            WHERE f.status = 'open' AND f.severity = 'HIGH'
-              AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number)
-            ORDER BY f.risk_score DESC
+            WITH ranked_findings AS (
+                SELECT f.id, f.vuln_type, f.severity, f.risk_score, f.file_path,
+                       s.pr_number, s.pr_title, r.id AS repo_id, r.full_name AS repo_full_name,
+                       s.id AS scan_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY r.id, f.vuln_type, f.file_path,
+                                        COALESCE(f.line_number, 0)
+                           ORDER BY f.risk_score DESC, s.scanned_at DESC, f.id DESC
+                       ) AS rn
+                FROM findings f
+                JOIN scans s ON f.scan_id = s.id
+                JOIN repos r ON s.repo_id = r.id
+                JOIN user_installations ui
+                  ON ui.install_id = r.install_id AND ui.github_id = ?
+                WHERE f.status = 'open' AND f.severity = 'HIGH'
+                  AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number)
+            )
+            SELECT id, vuln_type, severity, risk_score, file_path,
+                   pr_number, pr_title, repo_id, repo_full_name, scan_id
+            FROM ranked_findings
+            WHERE rn = 1
+            ORDER BY risk_score DESC
             LIMIT 10
         """, (github_id,)).fetchall()
 
@@ -1145,6 +1165,7 @@ def get_repo(repo_id: int, github_id: int | None = None) -> dict | None:
                 FROM repos r
                 LEFT JOIN scans s ON s.repo_id = r.id
                 LEFT JOIN findings f ON f.scan_id = s.id
+                  AND s.id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number)
                 WHERE r.id = ?
                 GROUP BY r.id
             """, (repo_id,)).fetchone()
@@ -1159,6 +1180,7 @@ def get_repo(repo_id: int, github_id: int | None = None) -> dict | None:
                   ON ui.install_id = r.install_id AND ui.github_id = ?
                 LEFT JOIN scans s ON s.repo_id = r.id
                 LEFT JOIN findings f ON f.scan_id = s.id
+                  AND s.id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number)
                 WHERE r.id = ?
                 GROUP BY r.id
             """, (github_id, repo_id)).fetchone()
@@ -1658,68 +1680,100 @@ def get_all_scans(github_id: int, repo_id: int | None = None,
     return [dict(r) for r in rows]
 
 
+def _migrate_user_settings(conn: sqlite3.Connection):
+    """Idempotently add user_settings columns introduced after initial deploy.
+
+    Called both from ``init_db()`` (clean startup) and lazily from the settings
+    accessors, so a long-running server picks up the new schema without a
+    restart the next time settings are read or written.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
+    # Migration: add codeql_enabled to user_settings tables created before
+    # the CodeQL enable toggle shipped (existing on-disk DBs).
+    if "codeql_enabled" not in cols:
+        conn.execute("ALTER TABLE user_settings ADD COLUMN codeql_enabled INTEGER DEFAULT 1")
+    # Migration: add patch_mode to user_settings tables created before the
+    # AST-only / AST+LLM patch strategy selector shipped.
+    if "patch_mode" not in cols:
+        conn.execute("ALTER TABLE user_settings ADD COLUMN patch_mode TEXT")
+
+
 def get_user_settings(github_id: int | None = None) -> dict:
     """Return a user's effective scan settings (system defaults when unset)."""
+    defaults = {
+        "scan_mode": DEFAULT_SCAN_MODE,
+        "sandbox_network": DEFAULT_SANDBOX_NETWORK,
+        "codeql_enabled": True,
+        "patch_mode": DEFAULT_PATCH_MODE,
+    }
     if github_id is None:
-        return {
-            "scan_mode": DEFAULT_SCAN_MODE,
-            "sandbox_network": DEFAULT_SANDBOX_NETWORK,
-            "codeql_enabled": True,
-        }
+        return dict(defaults)
     with _connect() as conn:
+        _migrate_user_settings(conn)
         row = conn.execute(
-            "SELECT scan_mode, sandbox_network, codeql_enabled FROM user_settings WHERE github_id = ?",
+            "SELECT scan_mode, sandbox_network, codeql_enabled, patch_mode FROM user_settings WHERE github_id = ?",
             (github_id,),
         ).fetchone()
     if row is None:
-        return {
-            "scan_mode": DEFAULT_SCAN_MODE,
-            "sandbox_network": DEFAULT_SANDBOX_NETWORK,
-            "codeql_enabled": True,
-        }
+        return defaults
+    scan_mode = row["scan_mode"] or DEFAULT_SCAN_MODE
+    if scan_mode in LEGACY_SCAN_MODES:
+        scan_mode = "ci_fallback"
     return {
-        "scan_mode": row["scan_mode"] or DEFAULT_SCAN_MODE,
+        "scan_mode": scan_mode,
         "sandbox_network": row["sandbox_network"] or DEFAULT_SANDBOX_NETWORK,
         "codeql_enabled": bool(row["codeql_enabled"]),
+        "patch_mode": row["patch_mode"] or DEFAULT_PATCH_MODE,
     }
 
 
 def update_user_settings(github_id: int, scan_mode: str | None = None,
                          sandbox_network: str | None = None,
-                         codeql_enabled: bool | None = None) -> dict:
+                         codeql_enabled: bool | None = None,
+                         patch_mode: str | None = None) -> dict:
     """Persist per-user scan settings, validating against the allowed options.
 
     Passing None for a field leaves it untouched. Raises ValueError when a
-    provided value is not in the allowed SCAN_MODES / SANDBOX_NETWORKS.
+    provided value is not in the allowed SCAN_MODES / LEGACY_SCAN_MODES /
+    SANDBOX_NETWORKS / PATCH_MODES. Legacy scan modes are normalized to
+    ``ci_fallback`` before persisting.
     """
-    if scan_mode is not None and scan_mode not in SCAN_MODES:
+    if scan_mode is not None and scan_mode not in SCAN_MODES and scan_mode not in LEGACY_SCAN_MODES:
         raise ValueError(f"Invalid scan_mode: {scan_mode}")
+    if scan_mode in LEGACY_SCAN_MODES:
+        scan_mode = "ci_fallback"
     if sandbox_network is not None and sandbox_network not in SANDBOX_NETWORKS:
         raise ValueError(f"Invalid sandbox_network: {sandbox_network}")
     if codeql_enabled is not None and not isinstance(codeql_enabled, bool):
         raise ValueError("Invalid codeql_enabled: must be a boolean")
+    if patch_mode is not None and patch_mode not in PATCH_MODES:
+        raise ValueError(f"Invalid patch_mode: {patch_mode}")
 
     current = get_user_settings(github_id)
     new_scan_mode = scan_mode if scan_mode is not None else current["scan_mode"]
     new_network = sandbox_network if sandbox_network is not None else current["sandbox_network"]
     new_codeql = codeql_enabled if codeql_enabled is not None else current["codeql_enabled"]
+    new_patch_mode = patch_mode if patch_mode is not None else current["patch_mode"]
 
     with _connect() as conn:
+        _migrate_user_settings(conn)
         conn.execute("""
-            INSERT INTO user_settings (github_id, scan_mode, sandbox_network, codeql_enabled, updated_at)
-            VALUES (?, ?, ?, ?, datetime('now'))
+            INSERT INTO user_settings (github_id, scan_mode, sandbox_network, codeql_enabled, patch_mode, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(github_id) DO UPDATE SET
                 scan_mode = excluded.scan_mode,
                 sandbox_network = excluded.sandbox_network,
                 codeql_enabled = excluded.codeql_enabled,
+                patch_mode = excluded.patch_mode,
                 updated_at = datetime('now')
-        """, (github_id, new_scan_mode, new_network, 1 if new_codeql else 0))
+        """, (github_id, new_scan_mode, new_network, 1 if new_codeql else 0, new_patch_mode))
         conn.commit()
 
     return {
         "scan_mode": new_scan_mode,
         "sandbox_network": new_network,
         "codeql_enabled": bool(new_codeql),
+        "patch_mode": new_patch_mode,
     }
 
 
@@ -1731,9 +1785,9 @@ def get_dashboard_repos(github_id: int | None = None) -> list:
                     r.private, r.default_branch,
                     COUNT(DISTINCT s.id) AS total_scans,
                     COALESCE(MAX(s.scanned_at), '') AS last_scan_at,
-                    COALESCE(SUM(CASE WHEN f.severity = 'HIGH' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS high_risk,
-                    COALESCE(SUM(CASE WHEN f.severity = 'MEDIUM' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS med_risk,
-                    COALESCE(SUM(CASE WHEN f.severity = 'LOW' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS low_risk
+                    COALESCE(SUM(CASE WHEN f.severity = 'HIGH' AND f.status = 'open' AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number) THEN 1 ELSE 0 END), 0) AS high_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'MEDIUM' AND f.status = 'open' AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number) THEN 1 ELSE 0 END), 0) AS med_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'LOW' AND f.status = 'open' AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number) THEN 1 ELSE 0 END), 0) AS low_risk
                 FROM repos r
                 LEFT JOIN scans s ON s.repo_id = r.id
                 LEFT JOIN findings f ON f.scan_id = s.id
@@ -1746,9 +1800,9 @@ def get_dashboard_repos(github_id: int | None = None) -> list:
                     r.private, r.default_branch,
                     COUNT(DISTINCT s.id) AS total_scans,
                     COALESCE(MAX(s.scanned_at), '') AS last_scan_at,
-                    COALESCE(SUM(CASE WHEN f.severity = 'HIGH' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS high_risk,
-                    COALESCE(SUM(CASE WHEN f.severity = 'MEDIUM' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS med_risk,
-                    COALESCE(SUM(CASE WHEN f.severity = 'LOW' AND f.status = 'open' THEN 1 ELSE 0 END), 0) AS low_risk
+                    COALESCE(SUM(CASE WHEN f.severity = 'HIGH' AND f.status = 'open' AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number) THEN 1 ELSE 0 END), 0) AS high_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'MEDIUM' AND f.status = 'open' AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number) THEN 1 ELSE 0 END), 0) AS med_risk,
+                    COALESCE(SUM(CASE WHEN f.severity = 'LOW' AND f.status = 'open' AND f.scan_id IN (SELECT MAX(id) FROM scans GROUP BY repo_id, pr_number) THEN 1 ELSE 0 END), 0) AS low_risk
                 FROM repos r
                 JOIN user_installations ui
                   ON ui.install_id = r.install_id AND ui.github_id = ?

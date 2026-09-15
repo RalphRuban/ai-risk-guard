@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 core/scanner/test_file_fetcher.py
 Predicts and fetches test files from GitHub for a given source file.
@@ -9,12 +10,39 @@ import base64
 import logging
 import os
 import sys
+import threading
+import time
 
 import requests
+
+from core.config import config
 
 log = logging.getLogger("ai_risk_guard.test_file_fetcher")
 
 _STDLIB: frozenset = frozenset(getattr(sys, "stdlib_module_names", ()))
+
+# In-memory cache of resolved test-file discovery results, keyed by
+# ``(repo_name, branch, source_file, commit_sha)``; stores
+# ``(expires_at, content, path)``. Results are only cached when the scan is
+# pinned to a commit SHA, so a repeat re-validation of the same commit skips
+# the ~14 GitHub Contents API probes of a cold discovery, while a new commit
+# (new SHA) always re-probes from scratch.
+_DISCOVERY_CACHE: dict[tuple[str, str, str, str], tuple[float, str | None, str | None]] = {}
+_DISCOVERY_CACHE_LOCK = threading.Lock()
+
+
+def _discovery_cache_ttl() -> int:
+    try:
+        return int(config.app.test_file_cache.ttl_seconds)
+    except Exception:
+        return 3600
+
+
+def _discovery_cache_enabled() -> bool:
+    try:
+        return bool(config.app.test_file_cache.enabled)
+    except Exception:
+        return True
 
 
 def _case_variant(stem: str) -> str:
@@ -202,9 +230,52 @@ def discover_and_fetch_test_file(
     are relevant, the first existing one is returned as a best-effort
     fallback (preserving prior behaviour for loosely-named test repos).
 
+    A short-lived in-memory cache additionally short-circuits repeat discovery
+    of the same repo/branch/file *at the same commit* (e.g. re-validation
+    scans) so the ~14 GitHub probe calls of a cold discovery are skipped
+    entirely. Results are only stored when *commit_sha* is pinned, so new
+    commits always re-probe.
+
     Returns ``(content, matched_path)`` of the first successfully fetched
     test file, or ``(None, None)`` if no candidate exists.
     """
+    discovery_key = (repo_name, branch, source_file, commit_sha or "")
+    cacheable = bool(commit_sha) and _discovery_cache_enabled()
+
+    if cacheable:
+        now = time.monotonic()
+        with _DISCOVERY_CACHE_LOCK:
+            cached = _DISCOVERY_CACHE.get(discovery_key)
+            if cached is not None and cached[0] > now:
+                content, matched_path = cached[1], cached[2]
+                if content is not None:
+                    log.info(f"Test file discovery cache hit: {matched_path}")
+                return content, matched_path
+
+    content, matched_path = _discover_and_fetch_test_file_uncached(
+        repo_name, branch, source_file, access_token, cache, commit_sha
+    )
+
+    if cacheable:
+        with _DISCOVERY_CACHE_LOCK:
+            _DISCOVERY_CACHE[discovery_key] = (
+                time.monotonic() + _discovery_cache_ttl(),
+                content,
+                matched_path,
+            )
+
+    return content, matched_path
+
+
+def _discover_and_fetch_test_file_uncached(
+    repo_name: str,
+    branch: str,
+    source_file: str,
+    access_token: str,
+    cache,
+    commit_sha: str = "",
+) -> tuple[str | None, str | None]:
+    """Uncached core of ``discover_and_fetch_test_file`` (see its docstring)."""
     candidates = predict_test_candidates(source_file)
 
     first_existing: tuple[str | None, str | None] = (None, None)

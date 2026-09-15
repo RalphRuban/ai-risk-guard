@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { GlassPanel } from '../common/GlassPanel';
 import { RuggedFrame } from '../common/RuggedFrame';
 import { CyberButton } from '../common/CyberButton';
 import { ViewId } from '../../types';
 import { DashboardData, AttentionFinding, getDashboardData } from '../../api/client';
+import { gsap } from 'gsap';
 import { 
   Shield, 
   CheckCircle, 
@@ -14,6 +15,54 @@ import {
   ExternalLink,
   Filter
 } from 'lucide-react';
+
+function useAnimatedValue(target: number, duration = 1.2): number {
+  const [value, setValue] = useState<number>(0);
+  const proxy = useRef({ val: 0 });
+
+  useEffect(() => {
+    const tween = gsap.to(proxy.current, {
+      val: target,
+      duration,
+      ease: 'power2.out',
+      overwrite: true,
+      onUpdate: () => setValue(proxy.current.val),
+    });
+    return () => {
+      tween.kill();
+    };
+  }, [target, duration]);
+
+  return value;
+}
+
+function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: number }) {
+  const v = useAnimatedValue(value);
+  return <>{v.toFixed(decimals)}</>;
+}
+
+function AnimatedBar({ value, className }: { value: string; className?: string }) {
+  const pct = parseFloat(value) || 0;
+  const w = useAnimatedValue(pct);
+  return <div className={className} style={{ width: `${w}%` }} />;
+}
+
+function buildRingArc(cx: number, cy: number, r: number, fStart: number, fEnd: number): string {
+  const span = fEnd - fStart;
+  if (span >= 1) {
+    const first = buildRingArc(cx, cy, r, fStart, fStart + 0.5);
+    const second = buildRingArc(cx, cy, r, fStart + 0.5, fEnd);
+    return `${first} ${second}`;
+  }
+  const a0 = fStart * 2 * Math.PI;
+  const a1 = fEnd * 2 * Math.PI;
+  const x0 = cx + r * Math.sin(a0);
+  const y0 = cy - r * Math.cos(a0);
+  const x1 = cx + r * Math.sin(a1);
+  const y1 = cy - r * Math.cos(a1);
+  const largeArc = span > 0.5 ? 1 : 0;
+  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
 
 interface View04DashboardProps {
   onNavigate: (view: ViewId) => void;
@@ -83,9 +132,13 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
   const low = dashboard?.risk_levels?.LOW ?? 0;
   const medium = dashboard?.risk_levels?.MEDIUM ?? 0;
   const high = dashboard?.risk_levels?.HIGH ?? 0;
-  const lowPct = total ? ((low / total) * 100).toFixed(1) : '0.0';
-  const mediumPct = total ? ((medium / total) * 100).toFixed(1) : '0.0';
-  const highPct = total ? ((high / total) * 100).toFixed(1) : '0.0';
+  const highPctNum = total ? (high / total) * 100 : 0;
+  const mediumPctNum = total ? (medium / total) * 100 : 0;
+  const lowPctNum = total ? (low / total) * 100 : 0;
+  const hiFrac = total ? high / total : 0;
+  const medFrac = total ? medium / total : 0;
+  const lowFrac = total ? low / total : 0;
+  const hasLow = lowFrac > 0;
   const remediationRate = dashboard?.remediation_rate ?? 0;
   const score = dashboard?.avg_risk_score ?? 0;
 
@@ -113,14 +166,6 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
             >
               SYNC TELEMETRY
             </CyberButton>
-            <CyberButton
-              variant="primary"
-              size="sm"
-              icon={<Shield className="w-3.5 h-3.5" />}
-              onClick={() => onNavigate('scanner')}
-            >
-              RUN AST SCAN
-            </CyberButton>
           </div>
         }
       >
@@ -144,7 +189,7 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
             <div className="px-3 py-1.5 rounded bg-[#050B16] border border-[#17406E] flex items-center space-x-2">
               <span className="text-[#A7B4C4]">GATE STATUS:</span>
               <span className={high > 0 ? 'text-[#FF1E2D] font-bold' : 'text-[#00E699] font-bold'}>
-                {loading ? 'LOADING...' : `${dashboard?.week_summary?.open_now ?? 0} OPEN FINDINGS / ${dashboard?.week_summary?.new_7d ?? 0} NEW (7D)`}
+                {loading ? 'LOADING...' : (<><AnimatedNumber value={dashboard?.week_summary?.open_now ?? 0} /> OPEN FINDINGS / <AnimatedNumber value={dashboard?.week_summary?.new_7d ?? 0} /> NEW (7D)</>)}
               </span>
             </div>
           </div>
@@ -160,14 +205,14 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
               <GitPullRequest className="w-4 h-4 text-[#D9E1EA]" />
             </div>
             <div className="font-headline font-black text-3xl xl:text-4xl text-[#EAF1F8] tracking-wide mb-2">
-              {dashboard?.repos?.length ?? 0}
+              <AnimatedNumber value={dashboard?.repos?.length ?? 0} />
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
               <span className="flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#FF1E2D] animate-pulse" />
-                <span>{dashboard?.week_summary?.open_now ?? 0} OPEN FINDINGS</span>
+                <span><AnimatedNumber value={dashboard?.week_summary?.open_now ?? 0} /> OPEN FINDINGS</span>
               </span>
-              <span className="text-[#EAF1F8] font-bold">{dashboard?.week_summary?.scans_7d ?? 0} SCANS/7D</span>
+              <span className="text-[#EAF1F8] font-bold"><AnimatedNumber value={dashboard?.week_summary?.scans_7d ?? 0} /> SCANS/7D</span>
             </div>
           </div>
 
@@ -179,11 +224,11 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
               <Terminal className="w-4 h-4 text-[#FF1E2D]" />
             </div>
             <div className="font-headline font-black text-3xl xl:text-4xl text-[#FF1E2D] tracking-wide mb-2">
-              {dashboard?.total_prs ?? 0}
+              <AnimatedNumber value={dashboard?.total_prs ?? 0} />
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
-              <span>AVG RISK SCORE: {score.toFixed(2)}</span>
-              <span className="text-[#DEE7F0] font-bold">{(dashboard?.cache_hit_rate ?? 0).toFixed(0)}% CACHE HIT</span>
+              <span>AVG RISK SCORE: <AnimatedNumber value={score} decimals={2} /></span>
+              <span className="text-[#DEE7F0] font-bold"><AnimatedNumber value={dashboard?.cache_hit_rate ?? 0} decimals={0} />% CACHE HIT</span>
             </div>
           </div>
 
@@ -195,11 +240,11 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
               <Shield className="w-4 h-4 text-[#D9E1EA]" />
             </div>
             <div className="font-headline font-black text-3xl xl:text-4xl text-[#EAF1F8] tracking-wide mb-2">
-              {dashboard?.total_vulnerabilities ?? 0}
+              <AnimatedNumber value={dashboard?.total_vulnerabilities ?? 0} />
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
-              <span className="text-[#00E699] font-bold">{(remediationRate * 100).toFixed(0)}% REMEDIATED</span>
-              <span className="text-[#D9E1EA]">{high} OPEN HIGH</span>
+              <span className="text-[#00E699] font-bold"><AnimatedNumber value={remediationRate * 100} decimals={0} />% REMEDIATED</span>
+              <span className="text-[#D9E1EA]"><AnimatedNumber value={high} /> OPEN HIGH</span>
             </div>
           </div>
 
@@ -211,7 +256,7 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
               <Box className="w-4 h-4 text-[#D9E1EA]" />
             </div>
             <div className="font-headline font-black text-3xl xl:text-4xl text-[#DEE7F0] tracking-wide mb-2">
-              {(remediationRate * 100).toFixed(1)}%
+              <AnimatedNumber value={remediationRate * 100} decimals={1} />%
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono border-t border-[#17406E]/50 pt-2 text-[#D9E1EA]">
               <span>REMEDIATION RATE</span>
@@ -234,18 +279,18 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                 {/* Visual SVG Doughnut in Navy, Red, Silver */}
                 <div className="flex items-center justify-center py-2">
                   <div className="relative w-44 h-44 flex items-center justify-center">
-                    <svg className="w-full h-full transform -rotate-90">
+                    <svg className="w-full h-full">
                       {/* Base Background Track */}
                       <circle cx="88" cy="88" r="68" stroke="#0B2A5E" strokeWidth="16" fill="none" />
-                      {/* Medium/Low Track (Navy/Silver) */}
-                      <circle cx="88" cy="88" r="68" stroke="#007BFF" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="130" strokeLinecap="round" />
-                      {/* High Track (Titanium Silver) */}
-                      <circle cx="88" cy="88" r="68" stroke="#D9E1EA" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="280" strokeLinecap="round" />
-                      {/* Critical Track (Threat Red) */}
-                      <circle cx="88" cy="88" r="68" stroke="#FF1E2D" strokeWidth="16" fill="none" strokeDasharray="427" strokeDashoffset="375" strokeLinecap="round" />
+                      {/* High Track (Threat Red) */}
+                      <path d={buildRingArc(88, 88, 68, 0, hiFrac)} stroke="#FF1E2D" strokeWidth="16" fill="none" />
+                      {/* Medium Track (Blue) */}
+                      <path d={buildRingArc(88, 88, 68, hiFrac, hiFrac + medFrac)} stroke="#007BFF" strokeWidth="16" fill="none" />
+                      {/* Low Track (Titanium Silver) */}
+                      {hasLow && <path d={buildRingArc(88, 88, 68, hiFrac + medFrac, 1)} stroke="#D9E1EA" strokeWidth="16" fill="none" />}
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center font-mono text-center">
-                      <span className="font-headline font-bold text-2xl text-[#EAF1F8]">{total}</span>
+                      <span className="font-headline font-bold text-2xl text-[#EAF1F8]"><AnimatedNumber value={total} /></span>
                       <span className="text-[9px] text-[#A7B4C4] tracking-widest uppercase">SCANNED SINK NODES</span>
                     </div>
                   </div>
@@ -258,7 +303,7 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                       <span className="w-3 h-3 rounded-sm bg-[#FF1E2D] shadow-[0_0_8px_#FF1E2D]" />
                       <span className="text-[#EAF1F8] font-medium">HIGH RISK (severity=HIGH)</span>
                     </span>
-                    <span className="text-[#FF1E2D] font-bold">{high} ({highPct}%)</span>
+                    <span className="text-[#FF1E2D] font-bold"><AnimatedNumber value={high} /> (<AnimatedNumber value={highPctNum} decimals={1} />%)</span>
                   </div>
 
                   <div className="flex items-center justify-between p-3 rounded bg-[#020B1A] border border-[#17406E] hover:border-[#007BFF]/60 transition-colors">
@@ -266,7 +311,7 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                       <span className="w-3 h-3 rounded-sm bg-[#007BFF] shadow-[0_0_8px_#007BFF]" />
                       <span className="text-[#D9E1EA] font-medium">MEDIUM</span>
                     </span>
-                    <span className="text-[#D9E1EA] font-bold">{medium} ({mediumPct}%)</span>
+                    <span className="text-[#D9E1EA] font-bold"><AnimatedNumber value={medium} /> (<AnimatedNumber value={mediumPctNum} decimals={1} />%)</span>
                   </div>
 
                   <div className="flex items-center justify-between p-3 rounded bg-[#020B1A] border border-[#17406E] hover:border-[#D9E1EA]/60 transition-colors">
@@ -274,7 +319,7 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                       <span className="w-3 h-3 rounded-sm bg-[#D9E1EA] shadow-[0_0_8px_rgba(217,225,234,0.6)]" />
                       <span className="text-[#DEE7F0] font-medium">LOW</span>
                     </span>
-                    <span className="text-[#D9E1EA] font-bold">{low} ({lowPct}%)</span>
+                    <span className="text-[#D9E1EA] font-bold"><AnimatedNumber value={low} /> (<AnimatedNumber value={lowPctNum} decimals={1} />%)</span>
                   </div>
                 </div>
               </div>
@@ -318,9 +363,9 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                           <span className={ag.tagColor === 'red' ? 'text-[#FF1E2D] font-bold' : 'text-[#DEE7F0] font-bold'}>{ag.load}</span>
                         </div>
                         <div className="w-full h-1.5 bg-[#0B2A5E] rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full rounded-full ${ag.tagColor === 'red' ? 'bg-[#FF1E2D]' : 'bg-[#D9E1EA]'}`} 
-                            style={{ width: ag.load }}
+                          <AnimatedBar
+                            value={ag.load}
+                            className={`h-full rounded-full ${ag.tagColor === 'red' ? 'bg-[#FF1E2D]' : 'bg-[#D9E1EA]'}`}
                           />
                         </div>
                       </div>
@@ -441,11 +486,11 @@ export const View04Dashboard: React.FC<View04DashboardProps> = ({ onNavigate }) 
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onNavigate('patch');
+                            onNavigate('findings');
                           }}
                           className="px-3 py-1 bg-[#E31424] hover:bg-[#C41724] text-white border border-[#FF1E2D] text-[10px] font-bold rounded tracking-wider transition-all shadow-[0_0_10px_rgba(255,30,45,0.4)]"
                         >
-                          INSPECT DIFF
+                          VIEW FINDINGS
                         </button>
                       </td>
                     </tr>

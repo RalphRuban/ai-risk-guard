@@ -433,9 +433,9 @@ class TestSandboxDockerCommand:
         """Different network settings must not share sandbox cache entries."""
         from core.cache.sandbox_cache import SandboxCache
         cache = SandboxCache()
-        cache.set("code", "", "secure_validation", {"success": True}, "bridge|sandbox_with_local_fallback")
+        cache.set("code", "", "secure_validation", {"success": True}, "bridge|ci_fallback")
         assert cache.get("code", "", "secure_validation") is None
-        assert cache.get("code", "", "secure_validation", "bridge|sandbox_with_local_fallback")["success"] is True
+        assert cache.get("code", "", "secure_validation", "bridge|ci_fallback")["success"] is True
         assert cache.get("code", "", "secure_validation", "none|") is None
 
 

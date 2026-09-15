@@ -874,7 +874,7 @@ class TestValidatorAgent:
                     "file_path": "demo1.py",
                     "pr_context": {
                         "scan_settings": {
-                            "scan_mode": "sandbox_with_local_fallback",
+                            "scan_mode": "ci_fallback",
                             "sandbox_network": "bridge",
                         }
                     },
@@ -882,10 +882,10 @@ class TestValidatorAgent:
                 agent.execute(context)
 
             run_kwargs = instance.run.call_args.kwargs
-            assert run_kwargs.get("scan_mode") == "sandbox_with_local_fallback"
+            assert run_kwargs.get("scan_mode") == "ci_fallback"
             assert run_kwargs.get("network") == "bridge"
             tests_kwargs = instance.run_tests.call_args.kwargs
-            assert tests_kwargs.get("scan_mode") == "sandbox_with_local_fallback"
+            assert tests_kwargs.get("scan_mode") == "ci_fallback"
             assert tests_kwargs.get("network") == "bridge"
         finally:
             try:

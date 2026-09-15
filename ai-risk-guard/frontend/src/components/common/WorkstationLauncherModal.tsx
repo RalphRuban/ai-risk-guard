@@ -18,17 +18,13 @@ export const ALL_VIEWS: ViewMeta[] = [
   { id: 'signup', title: 'GitHub Onboarding Clearance', code: 'VIEW-03', category: 'PUBLIC', protected: false, description: 'Organization security clearance setup and repository binding.' },
   { id: 'dashboard', title: 'Enterprise Security Dashboard', code: 'VIEW-04', category: 'CORE', protected: true, description: 'High-density posture monitoring, risk distribution, and agent interventions.' },
   { id: 'repositories', title: 'Protected Repository Inventory', code: 'VIEW-05', category: 'CORE', protected: true, description: 'Monitored repository status matrix with active AST PR gates.' },
-  { id: 'scanner', title: 'Live AST Vulnerability Scanner', code: 'VIEW-06', category: 'ENGINES', protected: true, description: 'Interactive Python AST parser & Shannon entropy detector with live test suites.' },
-  { id: 'findings', title: 'Vulnerability Findings Matrix', code: 'VIEW-07', category: 'CORE', protected: true, description: 'Comprehensive inventory of AST vulnerabilities, CWE ratings, and file coordinates.' },
-  { id: 'patch', title: 'Automated Code Remediation', code: 'VIEW-08', category: 'ENGINES', protected: true, description: 'Dual-engine AST NodeTransformer and LLM patch review workstation with unified diff.' },
-  { id: 'sandbox', title: 'Hardened Sandbox Validation', code: 'VIEW-09', category: 'ENGINES', protected: true, description: 'Containerized validation runtime with 0.5 CPU, 128MB RAM, and zero network access.' },
+  { id: 'findings', title: 'Vulnerability Findings Matrix', code: 'VIEW-07', category: 'CORE', protected: true, description: 'Per-scan vulnerability inventory with severity ratings, file coordinates, and operator feedback.', hiddenFromNav: true },
   { id: 'policy', title: 'Governance & Security Policy', code: 'VIEW-10', category: 'GOVERNANCE', protected: true, description: 'Rule definitions, blocked modules/functions, mandatory sanitizers, and risk limits.' },
-  { id: 'risk', title: '7-Factor Risk Intelligence', code: 'VIEW-11', category: 'ENGINES', protected: true, description: 'Mathematical breakdown of the 7-factor weighted contextual risk formulation.' },
-  { id: 'telemetry', title: 'Time-Series Security Telemetry', code: 'VIEW-12', category: 'CORE', protected: true, description: 'Real-time telemetry stream, scan frequency trends, and anomaly radar.' },
+  { id: 'risk', title: '7-Factor Risk Intelligence', code: 'VIEW-11', category: 'GOVERNANCE', protected: true, description: 'Mathematical breakdown of the 7-factor weighted contextual risk formulation.' },
   { id: 'agents', title: 'Multi-Agent Mesh Architecture', code: 'VIEW-13', category: 'SYSTEM', protected: true, description: 'Interactive topological view of all six cooperating autonomous security agents.' },
   { id: 'reports', title: 'Security Reports Hub', code: 'VIEW-14', category: 'GOVERNANCE', protected: true, description: 'Executive audit reports, compliance certifications, and security grading.' },
-  { id: 'report-detail', title: 'Executive Report Detail & Export', code: 'VIEW-15', category: 'GOVERNANCE', protected: true, description: 'Detailed cryptographic audit record with JSON and printable export options.' },
-  { id: 'github', title: 'GitHub App & Webhook Ingestion', code: 'VIEW-16', category: 'SYSTEM', protected: true, description: 'Live webhook dispatch listener, PR status checks, and integration health.' },
+  { id: 'report-detail', title: 'Executive Report Detail & Export', code: 'VIEW-15', category: 'GOVERNANCE', protected: true, description: 'Detailed cryptographic audit record with JSON and printable export options.', hiddenFromNav: true },
+  { id: 'github', title: 'GitHub App & Scan Activity', code: 'VIEW-16', category: 'SYSTEM', protected: true, description: 'Webhook dispatch listener, PR status checks, integration health, and scan telemetry.' },
   { id: 'settings', title: 'Enterprise Operator Settings', code: 'VIEW-17', category: 'SYSTEM', protected: true, description: 'Security thresholds, audit logging levels, and container sandbox configurations.' },
   { id: 'status', title: 'System Health & Runtime Telemetry', code: 'VIEW-18', category: 'SYSTEM', protected: true, description: 'Subsystem diagnostics for Orchestrator, Scanner, Policy Engine, and Sandbox.' },
 ];
@@ -44,11 +40,12 @@ export const WorkstationLauncherModal: React.FC<WorkstationLauncherModalProps> =
 
   if (!isOpen) return null;
 
-  const categories = ['ALL', 'CORE', 'ENGINES', 'GOVERNANCE', 'SYSTEM', 'PUBLIC'];
+const visibleViews = ALL_VIEWS.filter((v) => !v.hiddenFromNav);
+const categories = ['ALL', 'CORE', 'GOVERNANCE', 'SYSTEM', 'PUBLIC'];
 
-  const filteredViews = ALL_VIEWS.filter(
-    (v) => filterCategory === 'ALL' || v.category === filterCategory
-  );
+const filteredViews = visibleViews.filter(
+  (v) => filterCategory === 'ALL' || v.category === filterCategory
+);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-[#020B1A]/90 backdrop-blur-xl animate-fadeIn">
@@ -61,7 +58,7 @@ export const WorkstationLauncherModal: React.FC<WorkstationLauncherModalProps> =
           <div className="flex items-center space-x-3">
             <Terminal className="w-5 h-5 text-[#00A8FF]" />
             <div>
-              <h3 className="font-headline text-lg text-white">Workstation Launcher — 18 Integrated Views</h3>
+              <h3 className="font-headline text-lg text-white">Workstation Launcher — {visibleViews.length} Integrated Views</h3>
               <p className="font-mono text-[10px] text-[#9AA7B8]">AUTONOMOUS DEFENSE PLATFORM NAVIGATION MATRIX</p>
             </div>
           </div>
@@ -112,17 +109,14 @@ export const WorkstationLauncherModal: React.FC<WorkstationLauncherModalProps> =
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-[10px] text-[#00A8FF] tracking-widest">{view.code}</span>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="text-[9px] font-mono px-1.5 py-0.5 bg-[#050B16] border border-[#17406E] text-[#9AA7B8]">
-                      {view.category}
-                    </span>
+                  <span className="px-1.5 py-0.5 bg-[#050B16] border border-[#17406E] text-[#9AA7B8]">
+                    {view.category}
+                  </span>
                     {isLocked ? (
                       <Lock className="w-3.5 h-3.5 text-[#FF1E2D]" />
                     ) : isCurrent ? (
                       <span className="w-2 h-2 rounded-full bg-[#00E699] animate-pulse" />
                     ) : null}
-                  </div>
                 </div>
 
                 <h4 className="font-headline text-sm text-white mb-1.5 group-hover:text-[#5BC9FF] transition-colors">

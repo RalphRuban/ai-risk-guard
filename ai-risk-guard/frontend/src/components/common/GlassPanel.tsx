@@ -10,6 +10,7 @@ interface GlassPanelProps {
   showBrackets?: boolean;
   interactive?: boolean;
   accentColor?: string;
+  onClick?: () => void;
 }
 
 export const GlassPanel: React.FC<GlassPanelProps> = ({
@@ -20,7 +21,8 @@ export const GlassPanel: React.FC<GlassPanelProps> = ({
   statusIndicator,
   showBrackets = true,
   interactive = false,
-  accentColor = '#D9E1EA'
+  accentColor = '#D9E1EA',
+  onClick
 }) => {
   const statusColors = {
     ACTIVE: 'bg-[#FF1E2D]',
@@ -31,6 +33,7 @@ export const GlassPanel: React.FC<GlassPanelProps> = ({
 
   return (
     <div
+      onClick={onClick}
       className={`relative rounded-xl overflow-hidden bg-gradient-to-br from-[#0B2A5E]/80 via-[#071A2E]/90 to-[#020B1A]/98 backdrop-blur-2xl border border-[#17406E]/60 shadow-[0_16px_40px_rgba(2,11,26,0.8),0_0_20px_rgba(217,225,234,0.06)] transition-all duration-300 ${
         interactive ? 'hover:border-[#FF1E2D]/60 hover:shadow-[0_20px_50px_rgba(255,30,45,0.2)] hover:-translate-y-1' : ''
       } ${className}`}

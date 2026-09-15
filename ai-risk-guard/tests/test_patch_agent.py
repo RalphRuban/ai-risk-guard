@@ -84,6 +84,41 @@ class TestPatchAgent:
             assert len(candidates) == 1
             assert candidates[0]["source"] == "deterministic_ast"
 
+    def test_execute_skips_llm_when_scan_settings_force_ast_only(self):
+        self.mock_llm_patcher.enabled = True
+
+        with patch("core.agents.patch_agent.apply_patches_safely") as mock_apply:
+            mock_apply.return_value = {
+                "final_code": "x = 2",
+                "combined_diff": "diff",
+            }
+            context = {
+                "original_code": "x = 1",
+                "vulnerabilities": [{"type": "HARDCODED_SECRET", "line": 1}],
+                "pr_context": {"scan_settings": {"patch_mode": "deterministic_only"}},
+            }
+            result = self.agent.execute(context)
+            self.mock_llm_patcher.generate_candidates.assert_not_called()
+            candidates = result["patch_candidates"]
+            assert len(candidates) == 1
+            assert candidates[0]["source"] == "deterministic_ast"
+
+    def test_execute_llm_when_scan_settings_patch_mode_both(self):
+        self.mock_llm_patcher.enabled = True
+        self.mock_llm_patcher.model_id = "gemini-3.5-flash"
+        self.mock_llm_patcher.generate_candidates.return_value = (["def foo(): pass"], "p", "r")
+
+        with patch("core.agents.patch_agent.apply_patches_safely") as mock_apply:
+            mock_apply.return_value = {"final_code": "x = 2", "combined_diff": "diff"}
+            context = {
+                "original_code": "x = 1",
+                "vulnerabilities": [{"type": "HARDCODED_SECRET", "line": 1}],
+                "pr_context": {"scan_settings": {"patch_mode": "both"}},
+            }
+            result = self.agent.execute(context)
+            self.mock_llm_patcher.generate_candidates.assert_called_once()
+            assert len(result["patch_candidates"]) == 2
+
     def test_execute_stores_original_code_key(self):
         with patch("core.agents.patch_agent.apply_patches_safely") as mock_apply:
             mock_apply.return_value = {

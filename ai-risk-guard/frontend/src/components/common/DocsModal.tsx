@@ -162,13 +162,29 @@ export const DocsModal: React.FC<DocsModalProps> = ({ isOpen, onClose }) => {
               <h4 className="font-headline text-base text-white">API Endpoints & GitHub Webhook Dispatcher</h4>
               <div className="space-y-2">
                 {[
-                  { method: 'POST', path: '/api/scan', desc: 'Accepts raw Python code snippet or repo file; returns AST syntax tree and CWE findings.' },
-                  { method: 'POST', path: '/api/patch', desc: 'Runs dual-engine patcher generating unified diffs and AST-transformed safe code.' },
-                  { method: 'POST', path: '/api/validate', desc: 'Submits patch to hardened container sandbox for execution and verification.' },
-                  { method: 'GET', path: '/api/metrics', desc: 'Returns system-wide telemetry counters, scan rates, and risk distribution.' },
-                  { method: 'GET', path: '/api/policy', desc: 'Fetches active organizational governance rules, blocked imports, and sanitizer mandates.' },
-                  { method: 'GET', path: '/api/health', desc: 'Diagnostic health status of all 6 multi-agent security subsystems.' },
-                  { method: 'POST', path: '/webhook', desc: 'GitHub App event handler for pull_request and check_run lifecycle integration.' }
+                  { method: 'GET', path: '/api/me', desc: 'Authenticated operator session, GitHub identity, and app installation count.' },
+                  { method: 'GET', path: '/api/dashboard', desc: 'System-wide stats, risk distribution, trends, attention findings, and per-repo summaries.' },
+                  { method: 'GET', path: '/api/repos', desc: 'Repositories discovered from webhook payloads with scan and finding counts.' },
+                  { method: 'GET', path: '/api/repos/<id>/scans', desc: 'Scan history for a single repository.' },
+                  { method: 'GET', path: '/api/repos/<id>/findings', desc: 'Findings for a single repository.' },
+                  { method: 'GET', path: '/api/scans', desc: 'All scans, newest first, with per-repo PR context and risk summary.' },
+                  { method: 'GET', path: '/api/scans/<id>', desc: 'Single scan record with discovered files and findings.' },
+                  { method: 'POST', path: '/api/scans/<id>/revalidate', desc: 'Re-runs sandbox validation for an existing scan.' },
+                  { method: 'GET', path: '/api/scans/<id>/findings', desc: 'Vulnerability findings belonging to one scan.' },
+                  { method: 'GET', path: '/api/findings', desc: 'Queryable vulnerability findings across all scanned repositories.' },
+                  { method: 'POST', path: '/api/findings/<id>/status', desc: 'Transition a finding to open / resolved / dismissed.' },
+                  { method: 'GET', path: '/api/metrics', desc: 'Aggregate scan counters and risk distribution.' },
+                  { method: 'GET', path: '/api/metrics/prometheus', desc: 'Prometheus scrape endpoint for runtime metrics.' },
+                  { method: 'GET', path: '/api/policy', desc: 'Active governance rules: forbidden modules, sinks, and sanitizer mandates.' },
+                  { method: 'GET', path: '/api/settings', desc: 'Runtime configuration (scan mode, sandbox network, CodeQL toggle).' },
+                  { method: 'POST', path: '/api/settings', desc: 'Update runtime configuration.' },
+                  { method: 'GET', path: '/api/health', desc: 'Readiness probe over DB, sandbox, and GitHub configuration.' },
+                  { method: 'GET', path: '/api/health/db', desc: 'SQLite database writability probe.' },
+                  { method: 'GET', path: '/api/health/gemini', desc: 'LLM engine configuration and model availability probe.' },
+                  { method: 'GET', path: '/api/health/sandbox', desc: 'Docker runtime availability, image readiness, and sandbox mode.' },
+                  { method: 'POST', path: '/api/ci-validation/results', desc: 'Internal CI-runner validation result ingestion for the Phase-E token flow.' },
+                  { method: 'POST', path: '/api/feedback', desc: 'Operator feedback submission endpoint.' },
+                  { method: 'POST', path: '/webhook', desc: 'GitHub App event handler for pull_request, check_suite, and installation lifecycle.' }
                 ].map((ep, i) => (
                   <div key={i} className="p-3 bg-[#050B16] border border-[#17406E] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="flex items-center space-x-2">

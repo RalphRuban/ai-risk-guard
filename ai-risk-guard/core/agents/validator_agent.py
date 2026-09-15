@@ -126,8 +126,8 @@ class ValidatorAgent(BaseAgent):
         self.log(f"Starting multi-stage validation for {len(candidates)} candidates")
         if test_file:
             self.log(f"Running synthesized tests from: {os.path.basename(test_file)}")
-        
-        def _validate_one(candidate):
+
+        def _validate_one(candidate, run_tests: bool = True):
             try:
                 patched_code = candidate.get("code")
                 if not patched_code:
@@ -176,9 +176,11 @@ class ValidatorAgent(BaseAgent):
                 # Stage 4: Policy Enforcement
                 policy_res = self.policy_engine.check_compliance(patched_code)
                 
-                # Stage 5: Run synthesized regression tests
+                # Stage 5: Run synthesized regression tests.
+                # Phase A may skip tests entirely (test_only_on_winner) so the
+                # winning candidate runs them in Phase B.
                 test_results = {"success": False, "skipped": True, "output": "", "error": "No test file"}
-                if test_file and os.path.exists(test_file):
+                if run_tests and test_file and os.path.exists(test_file):
                     extra_files = context.get("test_deps") or []
                     test_results = thread_sandbox.run_tests(
                         test_file, source_code=patched_code, source_filename=source_filename, extra_files=extra_files,
@@ -299,8 +301,8 @@ class ValidatorAgent(BaseAgent):
                         self.log(f"  - Policy: {policy_res.get('violations')}", "debug")
                     if not test_results.get("success"):
                         combined = " | ".join(filter(None, [
-                            test_results.get("error", ""),
-                            test_results.get("output", ""),
+                            str(test_results.get("error", "")),
+                            str(test_results.get("output", "")),
                         ]))
                         self.log(f"  - Tests: {combined or 'failed'}", "debug")
             except InputValidationError as e:
@@ -318,11 +320,40 @@ class ValidatorAgent(BaseAgent):
                 candidate["validation_details"] = {"error": "Unexpected validation error"}
             return candidate
 
-        max_workers = min(len(candidates), 3)
+        def _rank_key(c):
+            quality = c.get("quality_score", 0) or 0
+            validation = c.get("validation_score", 0) or 0
+            # Prefer LLM variants on a tie (same convention as RiskAgent).
+            tiebreaker = 0 if c.get("source") != "deterministic_ast" else 1
+            return (-quality, -validation, tiebreaker)
+
+        # When only the winning candidate should run the regression suite, run
+        # tests in a second phase on the top-ranked candidate. Otherwise every
+        # candidate is fully validated (legacy behavior).
+        test_only_winner = bool(
+            getattr(config.app.validation, "test_only_on_winner", True)
+            and test_file
+            and os.path.exists(test_file)
+        )
+        candidates_snapshot = list(candidates)
+        max_workers = min(len(candidates_snapshot), 3)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_validate_one, c): c for c in candidates}
+            futures = {
+                pool.submit(_validate_one, c, run_tests=not test_only_winner): c
+                for c in candidates_snapshot
+            }
             for future in as_completed(futures):
                 future.result()
+
+        if test_only_winner and candidates_snapshot:
+            ranked = sorted(candidates_snapshot, key=_rank_key)
+            winner = ranked[0]
+            winner_quality = winner.get("quality_score", 0) or 0
+            self.log(
+                f"Running regression tests for leading candidate only: "
+                f"{winner['id']} (quality {winner_quality:.2f})"
+            )
+            _validate_one(winner, run_tests=True)
 
         return context
 

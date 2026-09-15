@@ -6,6 +6,7 @@ Responsible for generating and applying secure code patches.
 from typing import Any
 
 from core.agents.base_agent import BaseAgent
+from core.config import config
 from core.patch.fixers import apply_patch_to_content
 from core.patch.llm_patcher import LLMPatcher
 from core.patch.patch_orchestrator import apply_patches_safely
@@ -43,6 +44,8 @@ class PatchAgent(BaseAgent):
         )
         
         # 2. LLM Multi-Candidate Generation (Advanced)
+        # Strategy is per-user when saved in scan_settings (AST-only or
+        # AST+LLM); otherwise the global config default applies.
         # We store these as a list of "Patch Candidate" dictionaries
         candidates = []
         
@@ -54,7 +57,10 @@ class PatchAgent(BaseAgent):
             "source": "deterministic_ast"
         })
 
-        if self.llm_patcher.enabled:
+        scan_settings = (context.get("pr_context") or {}).get("scan_settings") or {}
+        patch_mode = scan_settings.get("patch_mode") or getattr(config.app.patch, "mode", "both")
+
+        if self.llm_patcher.enabled and patch_mode != "deterministic_only":
             self.log("Generating additional candidates via LLM...")
             llm_result = self.llm_patcher.generate_candidates(original_code, vulnerabilities)
             llm_variants, llm_prompt, llm_raw = llm_result

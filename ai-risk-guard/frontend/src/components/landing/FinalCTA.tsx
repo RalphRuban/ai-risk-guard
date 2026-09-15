@@ -77,11 +77,11 @@ export const FinalCTA: React.FC<FinalCTAProps> = ({ onNavigate, onOpenDocs }) =>
         </div>
 
         <div className="mt-8 pt-6 border-t border-[#17406E]/50 flex flex-wrap items-center justify-center gap-6 font-mono text-[10px] text-[#A7B4C4]">
-          <span>PROTECTED REPOSITORIES: 128</span>
+          <span>REAL-TIME PR PROTECTION</span>
           <span>•</span>
-          <span>MITIGATED SINK NODES: 2,357</span>
+          <span>DETERMINISTIC PATCH ENGINE</span>
           <span>•</span>
-          <span>REMEDIATION PASS RATE: 94.2%</span>
+          <span>AIRGAPPED SANDBOX</span>
           <span>•</span>
           <span>SANDBOX TIMEOUT: 10.0S</span>
         </div>

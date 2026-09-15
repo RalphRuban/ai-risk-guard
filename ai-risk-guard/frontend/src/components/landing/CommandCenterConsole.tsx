@@ -49,10 +49,10 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
   // Sandbox simulation state
   const [testingSandbox, setTestingSandbox] = useState(false);
   const [sandboxOutput, setSandboxOutput] = useState([
-    '[0.02s] Spawn container: docker run --memory=128m --cpus=0.5 --network=none ai-risk-guard:safe',
+    '[0.02s] Spawn container: docker run --memory=128m --cpus=0.5 --network=none aurex:safe',
     '[0.18s] AST compilation check: SUCCESS',
     '[0.45s] Fuzz test: Command injection rejected (quoted argument vector)',
-    '[0.92s] Status: VALIDATED (SAFE) — 0 security violations'
+    '[0.92s] [SIMULATION] Sandbox outcome: 0 violations detected (demo result)'
   ]);
 
   const handleRunSandbox = () => {
@@ -65,7 +65,7 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
         '[0.14s] Mounting AST transformed candidate /tmp/patch.py...',
         '[0.35s] Executing py_compile syntax test suite -> PASS',
         '[0.68s] Injection vector test: Disarmed by shlex quotation array',
-        '[0.95s] Exit code 0 -> STATUS: VALIDATED (SAFE)'
+        '[0.95s] [SIMULATION] Exit code 0 — demo result only'
       ]);
     }, 700);
   };
@@ -96,6 +96,11 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
         </div>
 
         <TacticalBracket color="#D9E1EA" size="lg" />
+
+        {/* Simulated Preview Disclosure */}
+        <div className="absolute top-8 right-8 z-20 px-2.5 py-1 border border-[#D9E1EA]/40 bg-[#D9E1EA]/10 font-mono text-[10px] text-[#D9E1EA] font-bold tracking-[0.2em]">
+          SIMULATED PREVIEW
+        </div>
 
         {/* Tab Header Navigation (80% Navy, 10% Silver, 10% Red) */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b-2 border-[#17406E]/60">
@@ -152,7 +157,7 @@ export const CommandCenterConsole: React.FC<CommandCenterConsoleProps> = ({ onNa
           <CyberButton
             variant="outline"
             size="sm"
-            onClick={() => onNavigate(activeTab === 'SCANNER' ? 'scanner' : activeTab === 'DIFF' ? 'patch' : activeTab === 'SANDBOX' ? 'sandbox' : 'policy')}
+            onClick={() => onNavigate(activeTab === 'SCANNER' ? 'findings' : activeTab === 'DIFF' ? 'findings' : activeTab === 'SANDBOX' ? 'settings' : 'policy')}
             icon={<ArrowRight className="w-3.5 h-3.5 text-[#D9E1EA]" />}
           >
             EXPAND WORKSTATION

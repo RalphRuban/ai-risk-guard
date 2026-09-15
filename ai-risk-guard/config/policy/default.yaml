@@ -17,6 +17,7 @@ forbidden_functions:
   - "exec"
   - "hashlib.md5"
   - "hashlib.sha1"
+  - "pickle.loads"
 
 mandatory_sanitizers:
   subprocess.run:

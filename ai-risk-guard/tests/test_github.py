@@ -83,7 +83,7 @@ class TestReporterCodeScanning:
             resp.status_code = 200
             if "page=1" in page:
                 resp.json.return_value = [
-                    {"id": 42, "body": "<!-- ai-risk-guard scan:1 -->\n<!-- ai-risk-guard -->", "user": {"type": "Bot"}, "created_at": "2025-01-01T00:00:00Z"}
+                    {"id": 42, "body": "<!-- aurex scan:1 -->\n<!-- aurex -->", "user": {"type": "Bot"}, "created_at": "2025-01-01T00:00:00Z"}
                 ]
             else:
                 resp.json.return_value = []
@@ -108,8 +108,8 @@ class TestReporterCodeScanning:
             resp.status_code = 200
             if "page=1" in page:
                 resp.json.return_value = [
-                    {"id": 1, "body": "<!-- ai-risk-guard scan:1 -->\n<!-- ai-risk-guard -->", "user": {"type": "Bot"}, "created_at": "2025-01-01T00:00:00Z"},
-                    {"id": 2, "body": "<!-- ai-risk-guard scan:2 -->\n<!-- ai-risk-guard -->", "user": {"type": "Bot"}, "created_at": "2025-01-02T00:00:00Z"},
+                    {"id": 1, "body": "<!-- aurex scan:1 -->\n<!-- aurex -->", "user": {"type": "Bot"}, "created_at": "2025-01-01T00:00:00Z"},
+                    {"id": 2, "body": "<!-- aurex scan:2 -->\n<!-- aurex -->", "user": {"type": "Bot"}, "created_at": "2025-01-02T00:00:00Z"},
                 ]
             else:
                 resp.json.return_value = []
@@ -152,7 +152,7 @@ class TestReporterCodeScanning:
             resp.status_code = 200
             if "page=1" in page:
                 resp.json.return_value = [
-                    {"id": 42, "body": "<!-- ai-risk-guard scan:1 -->\n<!-- ai-risk-guard -->", "user": {"type": "Bot"}, "created_at": "2025-01-01T00:00:00Z"}
+                    {"id": 42, "body": "<!-- aurex scan:1 -->\n<!-- aurex -->", "user": {"type": "Bot"}, "created_at": "2025-01-01T00:00:00Z"}
                 ]
             else:
                 resp.json.return_value = []
@@ -239,11 +239,11 @@ class TestExtractScanNumber:
     """Tests for _extract_scan_number."""
 
     def test_extract_scan_number_from_comment(self):
-        body = "<!-- ai-risk-guard scan:42 -->\n## AI Risk Guard\n<!-- ai-risk-guard -->"
+        body = "<!-- aurex scan:42 -->\n## AUREX\n<!-- aurex -->"
         assert _extract_scan_number(body) == 42
 
     def test_extract_scan_number_not_found(self):
-        body = "## AI Risk Guard\nNo scan info"
+        body = "## AUREX\nNo scan info"
         assert _extract_scan_number(body) == 0
 
     def test_extract_scan_number_empty(self):
@@ -251,7 +251,7 @@ class TestExtractScanNumber:
 
     def test_extract_scan_number_increments(self):
         """If existing comment has scan:5, the next scan should be 6."""
-        body = "<!-- ai-risk-guard scan:5 -->\n..."
+        body = "<!-- aurex scan:5 -->\n..."
         existing = _extract_scan_number(body)
         next_scan = existing + 1
         assert next_scan == 6
@@ -485,12 +485,12 @@ class TestCheckRun:
         url = mock_post.call_args[0][0]
         payload = mock_post.call_args[1]["json"]
         assert url == "https://api.github.com/repos/owner/repo/check-runs"
-        assert payload["name"] == "ai-risk-guard/validation"
+        assert payload["name"] == "aurex/validation"
         assert payload["head_sha"] == "deadbeef1234567890"
         assert payload["status"] == "completed"
         assert payload["conclusion"] == "success"
-        assert "AI Risk Guard patch validation" in payload["output"]["title"]
-        assert payload["output"]["summary"].startswith("### AI Risk Guard")
+        assert "AUREX patch validation" in payload["output"]["title"]
+        assert payload["output"]["summary"].startswith("### AUREX")
 
     @patch("services.github.reporter.requests.post")
     def test_create_check_run_non_2xx_does_not_raise(self, mock_post):

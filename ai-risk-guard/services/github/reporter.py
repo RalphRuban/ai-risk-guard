@@ -44,7 +44,7 @@ from utils.retry import RateLimitError, retry
 
 sarif_generator = SARIFGenerator()
 
-BOT_MARKER = "<!-- ai-risk-guard -->"
+BOT_MARKER = "<!-- aurex -->"
 
 # Scan times are shown to the developer in Indian Standard Time (UTC+5:30).
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -122,8 +122,8 @@ def _risk_label_name(max_risk: float) -> str:
 
 
 def _extract_scan_number(body: str) -> int:
-    """Extract scan number from a comment body by searching for ``<!-- ai-risk-guard scan:N -->``."""
-    match = re.search(r'<!-- ai-risk-guard scan:(\d+) -->', body)
+    """Extract scan number from a comment body by searching for ``<!-- aurex scan:N -->``."""
+    match = re.search(r'<!-- aurex scan:(\d+) -->', body)
     return int(match.group(1)) if match else 0
 
 
@@ -704,7 +704,7 @@ def _format_header(repo_name, pr_number, action, scan_number, timestamp):
     pr_cell = str(pr_number) if pr_number else "—"
     status_cell = f"{status_icon} **{action}**" if action else "—"
     lines = [
-        "# 🔐 AI RISK GUARD",
+        "# 🔐 AUREX",
         "",
         f"> **Security Analysis Completed** | Scan {scan_number} | {timestamp}",
         "",
@@ -774,9 +774,9 @@ def _format_footer(repo_name, pr_number, scan_duration):
         ),
     ]
     if repo_name and pr_number:
-        lines.append(f"✅ Check: `ai-risk-guard/validation` in [Checks](https://github.com/{repo_name}/pull/{pr_number}/checks) | 📊 [Dashboard]({dashboard_url})")
+        lines.append(f"✅ Check: `aurex/validation` in [Checks](https://github.com/{repo_name}/pull/{pr_number}/checks) | 📊 [Dashboard]({dashboard_url})")
     else:
-        lines.append(f"✅ Check: `ai-risk-guard/validation` in Checks | 📊 [Dashboard]({dashboard_url})")
+        lines.append(f"✅ Check: `aurex/validation` in Checks | 📊 [Dashboard]({dashboard_url})")
     lines.append("💡 **Feedback**: React with 🚀 to accept a patch or 👎 to reject it.")
     return "\n".join(lines)
 
@@ -797,7 +797,7 @@ def format_report(results, scan_number: int = 1, repo_name: str | None = None, r
         action = "REQUEST_CHANGES" if max_risk >= max_allowed or max_risk >= human_review_above else "COMMENT"
 
     report = ""
-    report += f"<!-- ai-risk-guard scan:{scan_number} -->\n"
+    report += f"<!-- aurex scan:{scan_number} -->\n"
     report += "\n" + _format_header(repo_name, pr_number, action, scan_number, timestamp) + "\n"
     if llm_summary:
         report += f"\n> 💡 **Summary**: {llm_summary}\n"
@@ -1184,7 +1184,7 @@ def _check_conclusion(results: list, gating: bool = True) -> tuple[str, str]:
         conclusion = "neutral"
 
     summary = (
-        f"### AI Risk Guard — patch validation ({conclusion})\n\n"
+        f"### AUREX — patch validation ({conclusion})\n\n"
         f"**{len(results)}** finding(s) reviewed.\n\n"
         + "\n".join(lines)
         + (
@@ -1209,7 +1209,7 @@ def create_check_run(repository, pr_number, access_token, results, commit_sha):
     (mirrors ``upload_sarif_to_code_scanning``'s graceful degradation).
     """
     try:
-        check_name = getattr(config.app.checks, "name", "ai-risk-guard/validation")
+        check_name = getattr(config.app.checks, "name", "aurex/validation")
         gating = getattr(config.app.checks, "gating", False)
         conclusion, summary = _check_conclusion(results, gating=gating)
 
@@ -1222,7 +1222,7 @@ def create_check_run(repository, pr_number, access_token, results, commit_sha):
             "conclusion": conclusion,
             "completed_at": datetime.now(UTC).isoformat(),
             "output": {
-                "title": "AI Risk Guard patch validation",
+                "title": "AUREX patch validation",
                 "summary": summary,
             },
         }
@@ -1390,7 +1390,7 @@ def set_pr_labels(repository, pr_number, access_token, max_risk):
     """
     Set security risk labels on a PR via PUT /repos/{owner}/{repo}/issues/{pr}/labels.
 
-    Always adds ``ai-risk-guard`` label.
+    Always adds ``aurex`` label.
     Adds a risk-based label: ``security-risk-high``, ``security-risk-medium``, ``security-risk-low``.
     Removes any existing risk labels first to avoid conflicts.
 
@@ -1413,7 +1413,7 @@ def set_pr_labels(repository, pr_number, access_token, max_risk):
         remove_pr_labels(repository, pr_number, access_token, existing_risk)
 
         new_label = _risk_label_name(max_risk)
-        labels = ["ai-risk-guard", new_label]
+        labels = ["aurex", new_label]
 
         url = (
             f"https://api.github.com/repos/"

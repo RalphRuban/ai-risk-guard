@@ -33,7 +33,7 @@ github_app:
 
 checks:
   create_check: true
-  name: "ai-risk-guard/validation"
+  name: "aurex/validation"
   # When false, failures are reported as neutral so the check never blocks merges.
   gating: false
 
@@ -41,7 +41,13 @@ codeql:
   enabled: true
   auto_provision: true
   workflow_branch: "ai-risk-guard/codeql-setup"
-  pr_title: "Enable GitHub CodeQL analysis (via AI Risk Guard)"
+  pr_title: "Enable GitHub CodeQL analysis (via AUREX)"
+
+patch:
+  # Patch generation strategy:
+  #   deterministic_only — AST fixers only (fast, deterministic, no Gemini).
+  #   both — AST baseline + LLM variants (more context-aware, slower; validator picks best).
+  mode: "both"
 
 llm:
   # Quality-ordered Gemini fallback chain (first available wins).
@@ -53,6 +59,14 @@ llm:
     - "gemini-3.6-flash"
     - "gemini-3.5-flash-lite"
     - "gemini-3.1-flash-lite"
+  # Non-critical calls (explanations, PR summary, regression-test explanation)
+  # use this lighter model to save latency and quota. Triage stays on the
+  # quality-ordered chain because it gates detections. Falls back to
+  # model_fallback_chain when unavailable.
+  light_model: "gemini-3.1-flash-lite"
+  # Cap a single Gemini call so one slow model can't stretch a whole scan.
+  request_timeout_seconds: 45
+  max_output_tokens: 4096
 
 feedback:
   # Harvest 🚀/👎 reactions on bot PR comments via the Reactions REST API
@@ -95,6 +109,16 @@ validation:
   enabled: true
   poll_interval_seconds: 60
   max_revalidations_per_cycle: 3
+  # Rank candidates via syntax/sandbox/rescan/policy first, then run the
+  # regression suite only on the winner. Keeps scan time down when a scan
+  # produces several candidates.
+  test_only_on_winner: true
+
+test_file_cache:
+  # In-memory per-repo cache of test-file discovery results, cutting the ~14
+  # GitHub Contents API probes on a cache miss down to zero on a cache hit.
+  enabled: true
+  ttl_seconds: 3600
 
 ci_runner:
   # CI-runner fallback validation (Phase E): when Docker is unavailable locally,

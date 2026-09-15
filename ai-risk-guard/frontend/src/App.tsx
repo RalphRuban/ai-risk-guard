@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ViewId, ShieldCADState } from './types';
 import { getMe } from './api/client';
+import { AuditReport } from './utils/reports';
 import { CinematicEnvironment } from './components/landing/CinematicEnvironment';
 import { TacticalNavbar } from './components/common/TacticalNavbar';
 import { TacticalSidebar } from './components/common/TacticalSidebar';
@@ -16,13 +17,9 @@ import { View02Login } from './components/views/View02Login';
 import { View03Signup } from './components/views/View03Signup';
 import { View04Dashboard } from './components/views/View04Dashboard';
 import { View05Repositories } from './components/views/View05Repositories';
-import { View06Scanner } from './components/views/View06Scanner';
 import { View07Findings } from './components/views/View07Findings';
-import { View08Patch } from './components/views/View08Patch';
-import { View09Sandbox } from './components/views/View09Sandbox';
 import { View10Policy } from './components/views/View10Policy';
 import { View11Risk } from './components/views/View11Risk';
-import { View12Telemetry } from './components/views/View12Telemetry';
 import { View13Agents } from './components/views/View13Agents';
 import { View14Reports } from './components/views/View14Reports';
 import { View15ReportDetail } from './components/views/View15ReportDetail';
@@ -39,13 +36,9 @@ const VIEW_PATHS: Record<ViewId, string> = {
   signup: '/signup',
   dashboard: '/dashboard',
   repositories: '/repositories',
-  scanner: '/scanner',
   findings: '/findings',
-  patch: '/patch',
-  sandbox: '/sandbox',
   policy: '/policy',
   risk: '/risk',
-  telemetry: '/telemetry',
   agents: '/agents',
   reports: '/reports',
   'report-detail': '/report-detail',
@@ -66,13 +59,9 @@ function viewFromPath(): ViewId {
     '/signup': 'signup',
     '/dashboard': 'dashboard',
     '/repositories': 'repositories',
-    '/scanner': 'scanner',
     '/findings': 'findings',
-    '/patch': 'patch',
-    '/sandbox': 'sandbox',
     '/policy': 'policy',
     '/risk': 'risk',
-    '/telemetry': 'telemetry',
     '/agents': 'agents',
     '/reports': 'reports',
     '/report-detail': 'report-detail',
@@ -86,7 +75,7 @@ function viewFromPath(): ViewId {
 
 export function App() {
   const [currentView, setCurrentView] = useState<ViewId>(viewFromPath);
-  const [introVisible, setIntroVisible] = useState(true);
+  const [introVisible, setIntroVisible] = useState<boolean>(() => viewFromPath() === 'landing');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [operatorHandle, setOperatorHandle] = useState('octocat-secops');
   const [operatorAvatar, setOperatorAvatar] = useState('');
@@ -97,6 +86,9 @@ export function App() {
   const [pendingRestrictedView, setPendingRestrictedView] = useState<ViewId | null>(null);
   const [docsModalOpen, setDocsModalOpen] = useState(false);
   const [launcherModalOpen, setLauncherModalOpen] = useState(false);
+
+  // Selected Governance report passed from the Reports hub to the detail view.
+  const [selectedReport, setSelectedReport] = useState<AuditReport | null>(null);
 
   // Verify the real GitHub OAuth session on boot.
   useEffect(() => {
@@ -251,25 +243,21 @@ export function App() {
 
       {effectiveView === 'repositories' && <View05Repositories onNavigate={navigateTo} />}
 
-      {effectiveView === 'scanner' && <View06Scanner onNavigate={navigateTo} />}
-
       {effectiveView === 'findings' && <View07Findings onNavigate={navigateTo} />}
-
-      {effectiveView === 'patch' && <View08Patch onNavigate={navigateTo} />}
-
-      {effectiveView === 'sandbox' && <View09Sandbox onNavigate={navigateTo} />}
 
       {effectiveView === 'policy' && <View10Policy onNavigate={navigateTo} />}
 
       {effectiveView === 'risk' && <View11Risk onNavigate={navigateTo} />}
 
-      {effectiveView === 'telemetry' && <View12Telemetry onNavigate={navigateTo} />}
-
       {effectiveView === 'agents' && <View13Agents onNavigate={navigateTo} />}
 
-      {effectiveView === 'reports' && <View14Reports onNavigate={navigateTo} />}
+      {effectiveView === 'reports' && (
+        <View14Reports onNavigate={navigateTo} onSelectReport={setSelectedReport} />
+      )}
 
-      {effectiveView === 'report-detail' && <View15ReportDetail onNavigate={navigateTo} />}
+      {effectiveView === 'report-detail' && (
+        <View15ReportDetail onNavigate={navigateTo} report={selectedReport} />
+      )}
 
       {effectiveView === 'github' && <View16GitHub onNavigate={navigateTo} />}
 

@@ -68,6 +68,12 @@ export interface Scan {
   status?: string;
   findings_count?: number;
   scanned_at?: string;
+  repo_full_name?: string;
+  branch?: string;
+  commit_sha?: string;
+  max_risk?: number;
+  duration_ms?: number;
+  validation_status?: string;
   [key: string]: unknown;
 }
 
@@ -93,11 +99,13 @@ export interface SettingsResponse {
     scan_mode?: string;
     sandbox_network?: string;
     codeql_enabled?: boolean;
+    patch_mode?: string;
     [key: string]: unknown;
   };
   options: {
     scan_modes: string[];
     networks: string[];
+    patch_modes: string[];
     docker_available: boolean;
   };
 }
@@ -188,6 +196,23 @@ export async function getFindings(params: Record<string, string | number | undef
 export async function getScans(params: Record<string, string | number | undefined> = {}): Promise<Scan[]> {
   const { data } = await api.get<{ scans: Scan[] }>('/scans', { params })
   return data.scans
+}
+
+export async function getScanFindings(scanId: number): Promise<Finding[]> {
+  const { data } = await api.get<{ findings: Finding[] }>(`/scans/${scanId}/findings`)
+  return data.findings
+}
+
+export interface FeedbackPayload {
+  vuln_type: string;
+  outcome: 'ACCEPTED' | 'REJECTED';
+  repo_id?: number;
+  pr_number?: number;
+  scan_id?: number;
+}
+
+export async function submitFeedback(payload: FeedbackPayload): Promise<void> {
+  await api.post('/feedback', payload)
 }
 
 export async function getSettings(): Promise<SettingsResponse> {

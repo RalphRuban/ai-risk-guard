@@ -5,7 +5,6 @@ import { CADControls } from '../common/CADControls';
 import { TacticalShield3D } from '../3d/TacticalShield3D';
 import { AurexLogo } from '../common/AurexLogo';
 import ScrambledText from '../bits/TextAnimations/ScrambledText/ScrambledText';
-import CountUp from '../bits/TextAnimations/CountUp/CountUp';
 import SpecularButton from '../bits/Components/SpecularButton/SpecularButton';
 import { ShieldCADState, ViewId } from '../../types';
 
@@ -87,30 +86,30 @@ export const HeroScene: React.FC<HeroSceneProps> = ({
               variant="secondary"
               size="lg"
               icon={<Terminal className="w-4 h-4 text-[#D9E1EA]" />}
-              onClick={() => onNavigate('scanner')}
+              onClick={() => onNavigate('findings')}
             >
-              RUN AST SCAN
+              REVIEW SCAN FINDINGS
             </CyberButton>
           </div>
 
-          {/* Live Telemetry Counters with Glassmorphic Floating Panel (80% Navy, 10% Silver, 10% Red) */}
+          {/* Console Capabilities (Generic, no fabricated metrics) */}
           <div className="grid grid-cols-3 gap-4 pt-4 border-t-2 border-[#17406E]/50 font-mono text-[11px]">
             <div className="p-4 rounded-lg bg-gradient-to-b from-[#0B2A5E]/85 to-[#050B16]/95 backdrop-blur-xl border-2 border-[#17406E] shadow-[0_6px_25px_rgba(2,11,26,0.7)] hover:border-[#D9E1EA]/60 transition-colors">
-              <span className="text-[#A7B4C4] block text-[10px] tracking-wider uppercase font-semibold">PROTECTED REPOS</span>
+              <span className="text-[#A7B4C4] block text-[10px] tracking-wider uppercase font-semibold">REAL-TIME PROTECTION</span>
               <span className="text-white font-headline font-bold text-lg sm:text-xl tracking-wide">
-                <CountUp to={128} separator="," /> ACTIVE
+                GITHUB PRs
               </span>
             </div>
             <div className="p-4 rounded-lg bg-gradient-to-b from-[#0B2A5E]/85 to-[#050B16]/95 backdrop-blur-xl border-2 border-[#17406E] shadow-[0_6px_25px_rgba(2,11,26,0.7)] hover:border-[#FF1E2D]/60 transition-colors">
-              <span className="text-[#A7B4C4] block text-[10px] tracking-wider uppercase font-semibold">AST SCANS</span>
+              <span className="text-[#A7B4C4] block text-[10px] tracking-wider uppercase font-semibold">AST ANALYSIS</span>
               <span className="text-[#FF1E2D] font-headline font-bold text-lg sm:text-xl tracking-wide">
-                <CountUp to={4682} separator="," /> RUNS
+                VISITOR ENGINE
               </span>
             </div>
             <div className="p-4 rounded-lg bg-gradient-to-b from-[#0B2A5E]/85 to-[#050B16]/95 backdrop-blur-xl border-2 border-[#17406E] shadow-[0_6px_25px_rgba(2,11,26,0.7)] hover:border-[#D9E1EA]/60 transition-colors">
-              <span className="text-[#A7B4C4] block text-[10px] tracking-wider uppercase font-semibold">AUTO-PATCH PASS</span>
+              <span className="text-[#A7B4C4] block text-[10px] tracking-wider uppercase font-semibold">PATCH ENGINE</span>
               <span className="text-[#D9E1EA] font-headline font-bold text-lg sm:text-xl tracking-wide">
-                <CountUp to={94.2} separator="," />% PASS
+                DETERMINISTIC
               </span>
             </div>
           </div>

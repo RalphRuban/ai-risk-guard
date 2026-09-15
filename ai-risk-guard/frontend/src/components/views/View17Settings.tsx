@@ -5,10 +5,11 @@ import { ViewId } from '../../types';
 import { Save } from 'lucide-react';
 import { getSettings, updateSettings } from '../../api/client';
 
-export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
+export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = () => {
   const [scanMode, setScanMode] = useState('docker_only');
   const [sandboxNetwork, setSandboxNetwork] = useState('none');
   const [codeqlEnabled, setCodeqlEnabled] = useState(false);
+  const [patchMode, setPatchMode] = useState('both');
   const [dockerAvailable, setDockerAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
@@ -22,6 +23,7 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
       setScanMode(res.settings.scan_mode || 'docker_only');
       setSandboxNetwork(res.settings.sandbox_network || 'none');
       setCodeqlEnabled(Boolean(res.settings.codeql_enabled));
+      setPatchMode(res.settings.patch_mode || 'both');
       setDockerAvailable(Boolean(res.options.docker_available));
     } catch (e) {
       setError('Unable to load settings.');
@@ -42,6 +44,7 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
         scan_mode: scanMode,
         sandbox_network: sandboxNetwork,
         codeql_enabled: codeqlEnabled,
+        patch_mode: patchMode,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -73,14 +76,6 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
           >
             {saved ? 'SETTINGS PERSISTED' : 'SAVE CONFIGURATION'}
           </CyberButton>
-
-          <CyberButton
-            variant="secondary"
-            size="sm"
-            onClick={() => onNavigate('status')}
-          >
-            SYSTEM HEALTH (VIEW 18)
-          </CyberButton>
         </div>
       </div>
 
@@ -110,10 +105,10 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
                 className="w-full bg-[#050B16] border border-[#17406E] text-[#D9E1EA] px-3 py-2 cursor-pointer"
               >
                 <option value="docker_only">docker_only</option>
-                <option value="sandbox_with_local_fallback">sandbox_with_local_fallback</option>
+                <option value="ci_fallback">ci_fallback</option>
               </select>
               <div className="flex justify-between text-[10px] text-[#9AA7B8]">
-                <span>DOCKER-ONLY / SANDBOX + LOCAL FALLBACK</span>
+                <span>DOCKER-ONLY / CI-RUNNER FALLBACK</span>
               </div>
             </div>
 
@@ -129,6 +124,41 @@ export const View17Settings: React.FC<{ onNavigate: (view: ViewId) => void }> = 
               >
                 {codeqlEnabled ? 'ENABLED' : 'DISABLED'}
               </button>
+            </div>
+          </div>
+        </GlassPanel>
+
+        {/* Patch Generation Strategy */}
+        <GlassPanel
+          headerTitle="PATCH GENERATION STRATEGY"
+          headerCode="PATCHSTRAT"
+          statusIndicator="ACTIVE"
+        >
+          <div className="space-y-4 font-mono text-xs">
+            <div className="space-y-2">
+              <div className="flex justify-between text-[#9AA7B8]">
+                <span>ACTIVE STRATEGY:</span>
+                <span className="text-[#00A8FF] font-bold">
+                  {patchMode === 'deterministic_only' ? 'AST ONLY' : 'AST + LLM'}
+                </span>
+              </div>
+              <select
+                value={patchMode}
+                onChange={(e) => setPatchMode(e.target.value)}
+                className="w-full bg-[#050B16] border border-[#17406E] text-[#D9E1EA] px-3 py-2 cursor-pointer"
+              >
+                <option value="both">both</option>
+                <option value="deterministic_only">deterministic_only</option>
+              </select>
+              <div className="flex justify-between text-[10px] text-[#9AA7B8]">
+                <span>AST + LLM / AST ONLY</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 bg-[#020B1A] border border-[#17406E] space-y-1 text-[10px] text-[#9AA7B8]">
+              <div className="text-[#00A8FF]">TRADE-OFF MATRIX:</div>
+              <div>AST ONLY — deterministic &amp; faster, lower scan cost</div>
+              <div>AST + LLM — context-aware patches, more validation time</div>
             </div>
           </div>
         </GlassPanel>

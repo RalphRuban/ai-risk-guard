@@ -65,7 +65,7 @@ class TestReportFormatting:
     def test_format_report_empty_findings(self):
         report = format_report([], scan_number=1)
         assert "No vulnerabilities detected" in report
-        assert "<!-- ai-risk-guard -->" in report
+        assert "<!-- aurex -->" in report
 
     def test_format_report_includes_scan_id(self):
         report = format_report([], scan_number=42)
@@ -238,7 +238,7 @@ class TestReportFormatting:
 
         report = format_report(findings, scan_number=1)
 
-        assert report.rstrip().endswith("<!-- ai-risk-guard -->")
+        assert report.rstrip().endswith("<!-- aurex -->")
 
 
     def test_format_report_docker_unavailable_note(self):
@@ -403,7 +403,7 @@ class TestReportFormatting:
                 "quality_score": 0.5,
             }
         ]
-        report = format_report(findings, scan_number=1, scan_mode="sandbox_with_local_fallback")
+        report = format_report(findings, scan_number=1, scan_mode="ci_fallback")
         assert "Sandbox mocked env vars: API_TOKEN, API_KEY" in report
         assert "tests asserting the original values fail on substitution" in report
 
@@ -684,7 +684,7 @@ class TestEnrichedComment:
         report = format_report([_rich_finding()], scan_number=1)
         assert "Scan Metadata" not in report
         assert "Rules version" not in report
-        assert "ai-risk-guard" in report
+        assert "aurex" in report
         assert "2.1.0" in report
         assert "Rules **2026.08**" in report
         assert "PR diff / AST + Regex" in report
@@ -797,7 +797,7 @@ class TestDashboardLayout:
             [], scan_number=15, repo_name="owner/repo", pr_number=17,
             commit_sha="a18f32c2f9d6b0e8c4f5a1b2c3d4e5f6a7b8c9d0", action="COMMENT",
         )
-        assert "AI RISK GUARD" in report
+        assert "AUREX" in report
         assert "| owner/repo | 17 |" in report
         assert "| Repository | Pull Request | Status |" in report
         assert "| Commit |" not in report
@@ -894,7 +894,7 @@ class TestDashboardLayout:
     def test_footer_has_version_duration_checks(self):
         findings = [self._finding("SQL_INJECTION", 6.0, "MEDIUM", "P2")]
         report = format_report(findings, scan_number=1, repo_name="owner/repo", pr_number=17, scan_duration=121.0)
-        assert "ai-risk-guard" in report
+        assert "aurex" in report
         assert "v2.1.0" in report
         assert "Generated in **121s**" in report
         assert "✅ Check:" in report

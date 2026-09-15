@@ -4,13 +4,9 @@ export type ViewId =
   | 'signup'
   | 'dashboard'
   | 'repositories'
-  | 'scanner'
   | 'findings'
-  | 'patch'
-  | 'sandbox'
   | 'policy'
   | 'risk'
-  | 'telemetry'
   | 'agents'
   | 'reports'
   | 'report-detail'
@@ -23,9 +19,10 @@ export interface ViewMeta {
   id: ViewId;
   title: string;
   code: string;
-  category: 'PUBLIC' | 'CORE' | 'ENGINES' | 'GOVERNANCE' | 'SYSTEM';
+  category: 'PUBLIC' | 'CORE' | 'GOVERNANCE' | 'SYSTEM';
   protected: boolean;
   description: string;
+  hiddenFromNav?: boolean;
 }
 
 export type CADViewAngle = 'ISOMETRIC' | 'FRONT' | 'TOP' | 'RIGHT' | 'SECTION' | 'EXPLODED';

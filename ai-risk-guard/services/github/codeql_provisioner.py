@@ -6,7 +6,7 @@ Phase 4.3 — CodeQL provisioning for installed repos.
 When the App is installed on (or added to) a repository, this module opens a
 pull request that adds the standard GitHub CodeQL workflow so GitHub's own
 hosted runners execute the analysis (zero App-side compute). Alerts appear
-natively in the repository's Code Scanning, alongside ai-risk-guard's SARIF.
+natively in the repository's Code Scanning, alongside AUREX's SARIF.
 
 Best-effort by design: every failure is logged and swallowed, never raised
 (mirrors the graceful-degradation pattern in reporter.py).
@@ -258,11 +258,11 @@ What it does:
 - Adds a CodeQL config that skips test files (`tests/**`, `**/test_*.py`).
 - Analysis runs on **GitHub's hosted runners** — no extra infrastructure required.
 
-Once merged, CodeQL results appear under **Security → Code scanning** on every push and pull request to the default branch, alongside AI Risk Guard's findings.
+Once merged, CodeQL results appear under **Security → Code scanning** on every push and pull request to the default branch, alongside AUREX's findings.
 
 Notes:
 - Free on public repositories. Private repositories require a GitHub Code Security entitlement to view Code Scanning alerts.
-- Opened automatically by the **AI Risk Guard** GitHub App.
+- Opened automatically by the **AUREX** GitHub App.
 """
 
 

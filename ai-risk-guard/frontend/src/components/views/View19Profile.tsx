@@ -41,24 +41,6 @@ export const View19Profile: React.FC<{ onNavigate: (view: ViewId) => void }> = (
             Operator Profile
           </h1>
         </div>
-
-        <div className="flex items-center space-x-3">
-          <CyberButton
-            variant="secondary"
-            size="sm"
-            onClick={() => onNavigate('dashboard')}
-          >
-            BACK TO DASHBOARD
-          </CyberButton>
-
-          <CyberButton
-            variant="secondary"
-            size="sm"
-            onClick={() => onNavigate('status')}
-          >
-            SYSTEM HEALTH (VIEW 18)
-          </CyberButton>
-        </div>
       </div>
 
       {error && (

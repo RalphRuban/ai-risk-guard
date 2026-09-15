@@ -1111,7 +1111,7 @@ line_number=v.get("line", 0),
                     prev_scan_number = existing[1]
 
             error_body = (
-                "# 🔐 AI Risk Guard — Analysis Failed\n\n"
+                "# 🔐 AUREX — Analysis Failed\n\n"
                 f"> **Error**: Analysis failed — see logs for details\n"
                 f"> **PR**: #{pr_number}\n\n"
                 "The scan could not complete. Common causes:\n"
@@ -1119,7 +1119,7 @@ line_number=v.get("line", 0),
                 "- GitHub API rate limit exceeded\n"
                 "- Gemini API unavailable\n\n"
                 "Please push a new commit to re-trigger analysis.\n"
-                f"<!-- ai-risk-guard scan:{prev_scan_number} -->\n"
+                f"<!-- aurex scan:{prev_scan_number} -->\n"
             )
 
             if existing is not None:
@@ -1153,7 +1153,7 @@ line_number=v.get("line", 0),
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({
-        "status": "AI Risk Guard Active",
+        "status": "AUREX Active",
         "endpoints": {
             "/webhook": "POST - GitHub Webhook Receiver",
             "/api/feedback": "POST - Record patch feedback (ACCEPTED/REJECTED)",
@@ -2085,7 +2085,7 @@ def health_db():
 def get_settings_api():
     """Return the logged-in user's effective scan settings and available options."""
     from core.validator.sandbox import Sandbox
-    from utils.db import SANDBOX_NETWORKS, SCAN_MODES, get_user_settings
+    from utils.db import PATCH_MODES, SANDBOX_NETWORKS, SCAN_MODES, get_user_settings
     uid = _current_github_id()
     settings = get_user_settings(uid)
     sandbox = Sandbox()
@@ -2095,6 +2095,7 @@ def get_settings_api():
         "options": {
             "scan_modes": list(SCAN_MODES),
             "networks": list(SANDBOX_NETWORKS),
+            "patch_modes": list(PATCH_MODES),
             "docker_available": docker_available,
         },
     })
@@ -2111,13 +2112,16 @@ def update_settings_api():
     scan_mode = data.get("scan_mode")
     sandbox_network = data.get("sandbox_network")
     codeql_enabled = data.get("codeql_enabled")
-    if scan_mode is None and sandbox_network is None and codeql_enabled is None:
-        return jsonify({"error": "Provide scan_mode, sandbox_network and/or codeql_enabled"}), 400
+    patch_mode = data.get("patch_mode")
+    if scan_mode is None and sandbox_network is None and codeql_enabled is None and patch_mode is None:
+        return jsonify({"error": "Provide scan_mode, sandbox_network, codeql_enabled and/or patch_mode"}), 400
     if codeql_enabled is not None and not isinstance(codeql_enabled, bool):
         return jsonify({"error": "codeql_enabled must be a boolean"}), 400
     try:
         settings = update_user_settings(
-            uid, scan_mode=scan_mode, sandbox_network=sandbox_network, codeql_enabled=codeql_enabled,
+            uid,
+            scan_mode=scan_mode, sandbox_network=sandbox_network,
+            codeql_enabled=codeql_enabled, patch_mode=patch_mode,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400

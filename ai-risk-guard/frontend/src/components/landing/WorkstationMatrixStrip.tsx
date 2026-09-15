@@ -1,6 +1,6 @@
 import React from 'react';
 import { ViewId } from '../../types';
-import { Shield, Terminal, Wrench, Box, Lock, Activity, ArrowUpRight } from 'lucide-react';
+import { Shield, Terminal, Lock, Github, Activity, ArrowUpRight } from 'lucide-react';
 import { HangingGlassCard } from '../common/HangingGlassCard';
 
 interface WorkstationMatrixStripProps {
@@ -9,12 +9,12 @@ interface WorkstationMatrixStripProps {
 
 export const WorkstationMatrixStrip: React.FC<WorkstationMatrixStripProps> = ({ onNavigate }) => {
   const cards = [
-    { id: 'dashboard' as ViewId, code: 'VIEW-04', title: 'Enterprise Dashboard', desc: 'Real-time telemetry, risk severity doughnuts, and active PR gates.', icon: <Activity className="w-4 h-4 text-[#FF1E2D]" />, status: '128 REPOS', glow: 'threat' as const },
-    { id: 'scanner' as ViewId, code: 'VIEW-06', title: 'Live AST Scanner', desc: 'Python compiler parsing, syntax trees, and Shannon entropy analysis.', icon: <Terminal className="w-4 h-4 text-[#D9E1EA]" />, status: '240MS AVG', glow: 'cyan' as const },
-    { id: 'patch' as ViewId, code: 'VIEW-08', title: 'AST Remediation', desc: 'Deterministic NodeTransformer rules & multi-candidate patch diffs.', icon: <Wrench className="w-4 h-4 text-[#FF1E2D]" />, status: 'AUTO-REWRITE', glow: 'threat' as const },
-    { id: 'sandbox' as ViewId, code: 'VIEW-09', title: 'Hardened Sandbox', desc: 'Airgapped 128MB container isolation with zero network transport.', icon: <Box className="w-4 h-4 text-[#D9E1EA]" />, status: '0.5 CPU', glow: 'cyan' as const },
+    { id: 'dashboard' as ViewId, code: 'VIEW-04', title: 'Enterprise Dashboard', desc: 'Real-time telemetry, risk severity doughnuts, and active PR gates.', icon: <Activity className="w-4 h-4 text-[#FF1E2D]" />, status: 'REAL-TIME', glow: 'threat' as const },
+    { id: 'findings' as ViewId, code: 'VIEW-07', title: 'Scan Findings Matrix', desc: 'Per-scan vulnerability inventory with severity ratings, file coordinates, and feedback.', icon: <Terminal className="w-4 h-4 text-[#D9E1EA]" />, status: 'LIVE SCANS', glow: 'cyan' as const },
+    { id: 'risk' as ViewId, code: 'VIEW-11', title: '7-Factor Risk Engine', desc: 'Weighted contextual risk formulation derived from live dashboard aggregates.', icon: <Shield className="w-4 h-4 text-[#FF1E2D]" />, status: 'COMPUTED', glow: 'threat' as const },
     { id: 'policy' as ViewId, code: 'VIEW-10', title: 'Governance Gateway', desc: 'Banned sinks, mandatory sanitizers, and PR risk thresholds.', icon: <Lock className="w-4 h-4 text-[#FF1E2D]" />, status: 'GATE LOCKED', glow: 'threat' as const },
-    { id: 'status' as ViewId, code: 'VIEW-18', title: 'System Health', desc: 'Diagnostic telemetry for 6 distributed security subsystems.', icon: <Shield className="w-4 h-4 text-[#D9E1EA]" />, status: '100% HEALTHY', glow: 'cyan' as const },
+    { id: 'github' as ViewId, code: 'VIEW-16', title: 'GitHub App & Scan Activity', desc: 'Webhook dispatch listener, PR status checks, and installation health.', icon: <Github className="w-4 h-4 text-[#D9E1EA]" />, status: 'INGESTION', glow: 'cyan' as const },
+    { id: 'status' as ViewId, code: 'VIEW-18', title: 'System Health', desc: 'Diagnostic telemetry for distributed security subsystems.', icon: <Shield className="w-4 h-4 text-[#D9E1EA]" />, status: 'LIVE PROBES', glow: 'cyan' as const },
   ];
 
   return (
@@ -27,7 +27,7 @@ export const WorkstationMatrixStrip: React.FC<WorkstationMatrixStripProps> = ({ 
           </span>
         </div>
         <div className="flex items-center space-x-3 text-[11px] text-[#A7B4C4]">
-          <span>SECURITY CHASSIS // ALL 18 VIEWPORTS ACTIVE</span>
+          <span>SECURITY CHASSIS // ALL 14 VIEWPORTS ACTIVE</span>
           <span className="px-2 py-0.5 rounded bg-[#0B2A5E] border border-[#D9E1EA]/30 text-[#D9E1EA] font-bold">AIRGAP MESH</span>
         </div>
       </div>

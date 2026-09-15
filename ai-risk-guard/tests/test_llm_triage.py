@@ -35,8 +35,10 @@ def _make_client(response=None, enabled=True, side_effect=None):
     client.enabled = enabled
     if side_effect is not None:
         client.cached_generate.side_effect = side_effect
+        client.cached_light_generate.side_effect = side_effect
     else:
         client.cached_generate.return_value = response
+        client.cached_light_generate.return_value = response
     return client
 
 

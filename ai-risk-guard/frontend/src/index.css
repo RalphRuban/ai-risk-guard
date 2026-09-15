@@ -287,3 +287,74 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ================= PRINT / PDF ================= */
+@page {
+  margin: 14mm;
+}
+
+@media print {
+  html, body {
+    background: #ffffff !important;
+    color: #0B1F3A !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Isolate the audit document: hide the app shell, pull the report to the top-left page origin */
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    background: #ffffff !important;
+    color: #0B1F3A !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Keep colored accents (severity / grade) but neutralise the dark panel chrome */
+  .print-area [class*="bg-"] {
+    background: transparent !important;
+  }
+  .print-area,
+  .print-area * {
+    box-shadow: none !important;
+  }
+  .print-area *:not([style]) {
+    color: #0B1F3A !important;
+  }
+
+  /* Tables: full width, page-break safe, no horizontal clipping */
+  .print-area .overflow-x-auto {
+    overflow: visible !important;
+  }
+  .print-area table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  .print-area thead {
+    display: table-header-group;
+  }
+  .print-area tr {
+    break-inside: avoid;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

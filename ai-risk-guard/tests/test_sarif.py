@@ -339,7 +339,7 @@ class TestSARIFPartialFingerprints:
         sarif_result = sarif["runs"][0]["results"][0]
 
         assert "fingerprints" in sarif_result
-        assert "ai-risk-guard/vulnerability" in sarif_result["fingerprints"]
+        assert "aurex/vulnerability" in sarif_result["fingerprints"]
 
 
 class TestReporterSARIF:
@@ -461,7 +461,7 @@ class TestSARIFEnrichment:
         monkeypatch.delenv("SARIF_INFORMATION_URI", raising=False)
         sarif = self._build_result()
         uri = sarif["runs"][0]["tool"]["driver"]["informationUri"]
-        assert uri == "https://github.com/ralphje/ai-risk-guard"
+        assert uri == "https://github.com/RalphRuban/ai-risk-guard"
 
     def test_information_uri_env_override(self, monkeypatch):
         monkeypatch.setenv("SARIF_INFORMATION_URI", "https://example.com/security")

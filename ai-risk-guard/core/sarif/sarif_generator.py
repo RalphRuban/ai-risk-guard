@@ -1,6 +1,6 @@
 """
 core/sarif/sarif_generator.py
-Converts AI Risk Guard analysis results to SARIF 2.1.0 format for GitHub Code Scanning.
+Converts AUREX analysis results to SARIF 2.1.0 format for GitHub Code Scanning.
 """
 
 import hashlib
@@ -195,10 +195,10 @@ HELP_MARKDOWN_MAP = {
 
 class SARIFGenerator:
     """
-    Generates SARIF 2.1.0 compliant output from AI Risk Guard analysis results.
+    Generates SARIF 2.1.0 compliant output from AUREX analysis results.
     """
 
-    def __init__(self, tool_name: str = "ai-risk-guard", tool_version: str = TOOL_VERSION):
+    def __init__(self, tool_name: str = "AUREX", tool_version: str = TOOL_VERSION):
         self.tool_name = tool_name
         self.tool_version = tool_version
 
@@ -235,12 +235,12 @@ class SARIFGenerator:
 
     def _build_run(self, analysis_result: AnalysisResult, commit_sha: str | None = None) -> dict[str, Any]:
         """Build a SARIF run object."""
-        run_id = "ai-risk-guard"
+        run_id = "aurex"
         if commit_sha:
-            run_id = f"ai-risk-guard/{commit_sha[:8]}"
+            run_id = f"aurex/{commit_sha[:8]}"
         run = {
             "tool": self._build_tool(),
-            "name": {"text": "AI Risk Guard Scan"},
+            "name": {"text": "AUREX Scan"},
             "runAutomationDetails": {
                 "id": run_id
             },
@@ -281,7 +281,7 @@ class SARIFGenerator:
         information_uri = (
             os.environ.get("SARIF_INFORMATION_URI")
             or config.app.deployment.sarif_information_uri
-            or "https://github.com/ralphje/ai-risk-guard"
+            or "https://github.com/RalphRuban/ai-risk-guard"
         )
         return {
             "driver": {
@@ -306,18 +306,18 @@ class SARIFGenerator:
                     "text": f"Security vulnerability: {vuln_type.value}"
                 },
                 "fullDescription": {
-                    "text": f"Detected {vuln_type.value} vulnerability by AI Risk Guard"
+                    "text": f"Detected {vuln_type.value} vulnerability by AUREX"
                 },
                 "defaultConfiguration": {
                     "level": DEFAULT_LEVEL_MAP.get(vuln_type, "warning"),
                 },
                 "help": {
-                    "text": HELP_TEXT_MAP.get(vuln_type, "Security vulnerability detected by AI Risk Guard."),
-                    "markdown": HELP_MARKDOWN_MAP.get(vuln_type, "**Security vulnerability** detected by AI Risk Guard."),
+                    "text": HELP_TEXT_MAP.get(vuln_type, "Security vulnerability detected by AUREX."),
+                    "markdown": HELP_MARKDOWN_MAP.get(vuln_type, "**Security vulnerability** detected by AUREX."),
                 },
                 "helpUri": f"https://cwe.mitre.org/data/definitions/{cwe_id}.html",
                 "properties": {
-                    "tags": ["security", "ai-risk-guard"],
+                    "tags": ["security", "aurex"],
                     "precision": "high",
                     "security-severity": SECURITY_SEVERITY_MAP.get(vuln_type, "7.0"),
                     "owasp": OWASP_MAP.get(vuln_type, "A00:2021"),
@@ -418,7 +418,7 @@ class SARIFGenerator:
                 "physicalLocation": physical_location
             }],
             "fingerprints": {
-                "ai-risk-guard/vulnerability": fingerprint
+                "aurex/vulnerability": fingerprint
             },
             "partialFingerprints": {
                 "primaryLocationLineHash": self._generate_line_hash(vuln)

@@ -171,7 +171,7 @@ INDEX. explanation and remediation
 For example:
 0. Executing an OS command built from an unvalidated variable allows an attacker to inject arbitrary shell commands. Use subprocess.run with shell=False and pass arguments as a list.
 """
-        response = self.client.cached_generate(prompt)
+        response = self.client.cached_light_generate(prompt)
         if not response:
             return {}
 
@@ -216,7 +216,7 @@ Findings:
 
 Reply with only the single sentence, no preamble, no markdown.
 """
-        response = self.client.cached_generate(prompt)
+        response = self.client.cached_light_generate(prompt)
         if not response:
             return None
         text = response.strip()
@@ -301,7 +301,7 @@ Rules:
 Facts:
 {chr(10).join(facts)}
 """
-        response = self.client.cached_generate(prompt)
+        response = self.client.cached_light_generate(prompt)
         if not response:
             return None
         text = response.strip()

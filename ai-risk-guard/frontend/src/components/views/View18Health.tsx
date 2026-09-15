@@ -15,7 +15,7 @@ const BASE_SUBSYSTEMS: SubsystemHealth[] = [
   { id: 'llm', name: 'LLM ENGINE // GEMINI', status: 'HEALTHY', latency: '—', version: '—', uptime: '—', details: 'Model fallback chain resolution via Gemini API.' },
 ];
 
-export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
+export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = () => {
   const [subsystems, setSubsystems] = useState<SubsystemHealth[]>(BASE_SUBSYSTEMS);
   const [allOperational, setAllOperational] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -99,14 +99,6 @@ export const View18Health: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
             onClick={loadHealth}
           >
             RE-SCAN
-          </CyberButton>
-
-          <CyberButton
-            variant="secondary"
-            size="sm"
-            onClick={() => onNavigate('dashboard')}
-          >
-            ENTER DASHBOARD (VIEW 04)
           </CyberButton>
         </div>
       </div>

@@ -51,6 +51,7 @@ def _make_client(response=None, enabled=True):
     client = MagicMock()
     client.enabled = enabled
     client.cached_generate.return_value = response
+    client.cached_light_generate.return_value = response
     return client
 
 
@@ -112,7 +113,7 @@ def test_explain_disabled_returns_none(monkeypatch):
     triage = _make_triage(client)
     with patch.object(config.app.regression_explain, "enabled", False):
         assert triage.explain_regression_tests(_MEANINGFUL_TEST_RESULTS) is None
-    client.cached_generate.assert_not_called()
+    client.cached_light_generate.assert_not_called()
 
 
 def test_explain_none_when_client_disabled(monkeypatch):
@@ -120,7 +121,7 @@ def test_explain_none_when_client_disabled(monkeypatch):
     client = _make_client(response="text", enabled=False)
     triage = _make_triage(client)
     assert triage.explain_regression_tests(_MEANINGFUL_TEST_RESULTS) is None
-    client.cached_generate.assert_not_called()
+    client.cached_light_generate.assert_not_called()
 
 
 def test_explain_none_without_meaningful_data(monkeypatch):
@@ -129,7 +130,7 @@ def test_explain_none_without_meaningful_data(monkeypatch):
     triage = _make_triage(client)
     assert triage.explain_regression_tests({}) is None
     assert triage.explain_regression_tests({"success": True, "mode": "docker"}) is None
-    client.cached_generate.assert_not_called()
+    client.cached_light_generate.assert_not_called()
 
 
 def test_explain_returns_trimmed_client_text(monkeypatch):
@@ -138,8 +139,8 @@ def test_explain_returns_trimmed_client_text(monkeypatch):
     triage = _make_triage(client)
     result = triage.explain_regression_tests(_MEANINGFUL_TEST_RESULTS)
     assert result == "All 11 tests passed."
-    client.cached_generate.assert_called_once()
-    prompt = client.cached_generate.call_args[0][0]
+    client.cached_light_generate.assert_called_once()
+    prompt = client.cached_light_generate.call_args[0][0]
     assert "Expected failures (pin removed vulnerabilities)" in prompt
     assert "test_secret_exists" in prompt
     assert "SECRET_API_KEY" in prompt
@@ -154,7 +155,7 @@ def test_explain_clips_test_names_to_max(monkeypatch):
     results["expected_failures"] = [f"test_{i}" for i in range(10)]
     with patch.object(config.app.regression_explain, "max_test_names_in_prompt", 3):
         triage.explain_regression_tests(results)
-    prompt = client.cached_generate.call_args[0][0]
+    prompt = client.cached_light_generate.call_args[0][0]
     assert "test_0, test_1, test_2, ..." in prompt
 
 

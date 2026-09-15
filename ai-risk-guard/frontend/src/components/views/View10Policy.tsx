@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { GlassPanel } from '../common/GlassPanel';
-import { CyberButton } from '../common/CyberButton';
 import { ViewId, PolicyData } from '../../types';
 import { getPolicy } from '../../api/client';
 
 type Sanitizer = { type: string; sanitizer: string };
 
-export const View10Policy: React.FC<{ onNavigate: (view: ViewId) => void }> = ({ onNavigate }) => {
+export const View10Policy: React.FC<{ onNavigate: (view: ViewId) => void }> = () => {
   const [policy, setPolicy] = useState<PolicyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -57,17 +56,8 @@ export const View10Policy: React.FC<{ onNavigate: (view: ViewId) => void }> = ({
           </h1>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <div className="px-3 py-1.5 bg-[#050B16] border border-[#17406E] font-mono text-[10px] text-[#9AA7B8]">
-            {loading ? 'LOADING POLICY...' : `POLICY ${policy?.version || '1.0'} // ${policy?.policy_name || 'Standard Enterprise Security Policy'}`}
-          </div>
-          <CyberButton
-            variant="secondary"
-            size="sm"
-            onClick={() => onNavigate('risk')}
-          >
-            VIEW RISK ENGINE (VIEW 11)
-          </CyberButton>
+        <div className="px-3 py-1.5 bg-[#050B16] border border-[#17406E] font-mono text-[10px] text-[#9AA7B8]">
+          {loading ? 'LOADING POLICY...' : `POLICY ${policy?.version || '1.0'} // ${policy?.policy_name || 'Standard Enterprise Security Policy'}`}
         </div>
       </div>
 
