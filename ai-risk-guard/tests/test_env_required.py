@@ -7,7 +7,7 @@ warnings only.
 
 import pytest
 
-from app.app import _check_required_env
+from app.app import _check_required_env, _is_placeholder_value
 
 _REQUIRED = (
     "GITHUB_WEBHOOK_SECRET",
@@ -50,3 +50,16 @@ def test_production_missing_flask_secret_raises(monkeypatch):
             monkeypatch.setenv(var, "x")
     with pytest.raises(RuntimeError, match="FLASK_SECRET_KEY"):
         _check_required_env()
+
+
+def test_real_pem_key_is_not_placeholder():
+    real_key = "-----BEGIN RSA PRIVATE KEY-----\\nMIIEowIBAAKCAQEAzYcp2vC7\\n-----END RSA PRIVATE KEY-----"
+    assert not _is_placeholder_value(real_key)
+    assert not _is_placeholder_value(real_key.replace("\\n", "\n"))
+
+
+def test_env_example_private_key_placeholders_are_flagged():
+    assert _is_placeholder_value(
+        "-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----"
+    )
+    assert _is_placeholder_value("C:/path/to/your/private-key.pem")

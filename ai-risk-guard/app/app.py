@@ -437,11 +437,13 @@ _PLACEHOLDER_PATTERNS = {
     "your_ci_validation_secret_here",
     "your_metrics_scrape_token_here",
     "github_token_with_repo_scope",
+    # GITHUB_PRIVATE_KEY placeholders from .env.example. Match these exactly;
+    # a real PEM also starts with "-----BEGIN", so a prefix check would reject
+    # valid keys in production. The literal backslash-n escapes in the first
+    # placeholder mirror how the example is written into env files.
+    "-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----",
+    "C:/path/to/your/private-key.pem",
 }
-_PLACEHOLDER_PREFIXES = (
-    "-----BEGIN",
-    "C:/path/to/",
-)
 
 
 def _is_placeholder_value(value: str) -> bool:
@@ -449,9 +451,7 @@ def _is_placeholder_value(value: str) -> bool:
     v = (value or "").strip()
     if not v:
         return True
-    if v in _PLACEHOLDER_PATTERNS:
-        return True
-    return bool(v.startswith(_PLACEHOLDER_PREFIXES))
+    return v in _PLACEHOLDER_PATTERNS
 
 
 def _check_required_env():
