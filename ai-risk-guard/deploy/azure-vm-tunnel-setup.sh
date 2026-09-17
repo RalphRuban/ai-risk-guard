@@ -113,6 +113,10 @@ id "${APP_USER}" >/dev/null 2>&1 || useradd --system --groups docker \
   --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
 usermod -aG docker "${APP_USER}"
 
+# After the first run's chown, the repo is owned by the app user; a later
+# re-run as root must still be able to fetch/reset it (dubious ownership).
+git config --global --add safe.directory "${APP_DIR}" >/dev/null 2>&1 || true
+
 if [[ ! -d "${APP_DIR}/.git" ]]; then
   log "cloning ${GITHUB_REPO} into ${APP_DIR}"
   git clone --depth 1 "${GITHUB_REPO}" "${APP_DIR}"
@@ -120,6 +124,15 @@ else
   log "refreshing repo at ${APP_DIR}"
   git -C "${APP_DIR}" fetch --all --quiet
   git -C "${APP_DIR}" reset --hard origin/HEAD
+fi
+
+# The cloned repo may keep the app under a same-named subfolder (e.g. when the
+# git root is the workspace that contains the project). Resolve the real app
+# root so requirements/units/builds resolve regardless of layout.
+if [[ -f "${APP_DIR}/ai-risk-guard/app/app.py" && -f "${APP_DIR}/ai-risk-guard/requirements.txt" ]]; then
+  APP_SRC="${APP_DIR}/ai-risk-guard"
+else
+  APP_SRC="${APP_DIR}"
 fi
 mkdir -p "${DATA_DIR}"
 
@@ -129,13 +142,13 @@ if [[ ! -d "${APP_DIR}/venv" ]]; then
   python3 -m venv "${APP_DIR}/venv"
 fi
 "${APP_DIR}/venv/bin/pip" install --quiet --upgrade pip
-"${APP_DIR}/venv/bin/pip" install --quiet -r "${APP_DIR}/requirements.txt"
+"${APP_DIR}/venv/bin/pip" install --quiet -r "${APP_SRC}/requirements.txt"
 
 # --- 5. Sandbox image --------------------------------------------------------
 if [[ "${CI_IMAGE:-}" != "no" ]]; then
   if ! docker image inspect "${SANDBOX_IMAGE}" >/dev/null 2>&1; then
     log "building sandbox image ${SANDBOX_IMAGE}"
-    docker build -f "${APP_DIR}/sandbox/Dockerfile.sandbox" -t "${SANDBOX_IMAGE}" "${APP_DIR}"
+    docker build -f "${APP_SRC}/sandbox/Dockerfile.sandbox" -t "${SANDBOX_IMAGE}" "${APP_SRC}"
   else
     log "sandbox image already present; skipping build"
   fi
@@ -143,7 +156,9 @@ fi
 
 # --- 6. Systemd service ------------------------------------------------------
 install -o root -g root -m 0644 \
-  "${APP_DIR}/deploy/ai-risk-guard.service" /etc/systemd/system/ai-risk-guard.service
+  "${APP_SRC}/deploy/ai-risk-guard.service" /etc/systemd/system/ai-risk-guard.service
+sed -i "s#^WorkingDirectory=.*#WorkingDirectory=${APP_SRC}#" \
+  /etc/systemd/system/ai-risk-guard.service
 systemctl daemon-reload
 systemctl enable ai-risk-guard >/dev/null 2>&1 || true
 
@@ -251,7 +266,7 @@ ufw --force enable >/dev/null
 
 # --- 11. Nightly backup -------------------------------------------------------
 install -o root -g root -m 0755 \
-  "${APP_DIR}/deploy/backup-dashboard.sh" /usr/local/sbin/backup-dashboard.sh
+  "${APP_SRC}/deploy/backup-dashboard.sh" /usr/local/sbin/backup-dashboard.sh
 cat > /etc/cron.d/ai-risk-guard-backup <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
