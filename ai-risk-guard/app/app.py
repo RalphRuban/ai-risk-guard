@@ -32,6 +32,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
 from flask import (
     Flask,
+    Response,
     jsonify,
     redirect,
     request,
@@ -156,6 +157,16 @@ app.config["SESSION_COOKIE_SECURE"] = bool(_secure_cookie)
 # x_for=1 is required so request.remote_addr reflects the real client IP
 # (used by the rate-limiters).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
+
+# ngrok free static domains (.ngrok-free.app) show a browser interstitial on
+# first visit unless the response carries the skip-warning header. The tunnel
+# deployment opts in via NGROK_BYPASS_WARNING (deploy/azure-vm-tunnel-setup.sh);
+# a no-op everywhere else.
+@app.after_request
+def add_ngrok_skip_warning(response: Response) -> Response:
+    if os.environ.get("NGROK_BYPASS_WARNING"):
+        response.headers["ngrok-skip-browser-warning"] = "true"
+    return response
 
 
 def login_required(view):
